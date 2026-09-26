@@ -11,7 +11,9 @@ let package = Package(
         .executable(name: "vibekey", targets: ["vibekey-cli"]),
         .executable(name: "VibeKeyElements", targets: ["VibeKeyElementsApp"])
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0")
+    ],
     targets: [
         .target(
             name: "VibeKeyCore",
@@ -25,7 +27,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "VibeKeyElementsApp",
-            dependencies: ["VibeKeyCore"],
+            dependencies: [
+                "VibeKeyCore",
+                .product(name: "Sparkle", package: "Sparkle")
+            ],
             path: "Sources/VibeKeyElementsApp"
         ),
         .testTarget(

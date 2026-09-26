@@ -17,6 +17,8 @@ public enum VibeKeyHIDError: Error, Equatable, LocalizedError {
     }
 }
 
+private let powerLogger = Logger(subsystem: "com.patrickfu.vibekey", category: "Power")
+
 public final class VibeKeyHIDManager: @unchecked Sendable {
     public static let shared = VibeKeyHIDManager()
 
@@ -121,14 +123,15 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         currentSnapshot = VibeKeyDeviceInfoSnapshot()
     }
 
-    public func enterPowerSaving(isStandby: Bool = true) {
+    public func enterPowerSaving(isStandby: Bool = true, reason: String = "Inactivity") {
         guard Thread.isMainThread else {
-            DispatchQueue.main.async { self.enterPowerSaving(isStandby: isStandby) }
+            DispatchQueue.main.async { self.enterPowerSaving(isStandby: isStandby, reason: reason) }
             return
         }
         guard !isPowerSaving else { return }
         isPowerSaving = true
         currentSnapshot.isStandby = isStandby
+        powerLogger.info("Entering power saving mode (isStandby: \(isStandby, privacy: .public), reason: \(reason, privacy: .public)). Halting heartbeat & polling timers.")
         stopTimers()
 
         if let device = connectedDevice {
@@ -137,6 +140,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
                 // Let MCU return to low-power native standby by releasing online mode
                 if let offlineReport = try? VibeKeyPacketBuilder.softwareOnlineReport(false) {
                     _ = try? self.sendReportSync(offlineReport, to: device)
+                    powerLogger.debug("Transmitted softwareOnline(false) to MCU. Downlink RF transmission paused.")
                 }
             }
         }
@@ -145,15 +149,16 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         onDeviceInfoUpdated?(currentSnapshot)
     }
 
-    public func resumeFromPowerSaving() {
+    public func resumeFromPowerSaving(reason: String = "UserActivity") {
         guard Thread.isMainThread else {
-            DispatchQueue.main.async { self.resumeFromPowerSaving() }
+            DispatchQueue.main.async { self.resumeFromPowerSaving(reason: reason) }
             return
         }
         guard isPowerSaving else { return }
         isPowerSaving = false
         currentSnapshot.isStandby = false
         lastActivityTime = Date()
+        powerLogger.info("Resuming from power saving mode (reason: \(reason, privacy: .public)). Restoring software online, heartbeat & polling timers.")
 
         if let device = connectedDevice {
             onlineGeneration &+= 1
@@ -162,6 +167,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
                 guard let self = self, self.onlineGeneration == generation else { return }
                 if let onlineReport = try? VibeKeyPacketBuilder.softwareOnlineReport(true) {
                     _ = try? self.sendReportSync(onlineReport, to: device)
+                    powerLogger.debug("Transmitted softwareOnline(true) to MCU.")
                 }
                 if let heartbeatReport = try? VibeKeyPacketBuilder.heartbeatReport() {
                     _ = try? self.sendReportSync(heartbeatReport, to: device)
@@ -184,7 +190,8 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             DispatchQueue.main.async { self.hostWillSleep() }
             return
         }
-        enterPowerSaving(isStandby: true)
+        powerLogger.notice("macOS host sleep/power-off notification received. Forcing standby power saving mode.")
+        enterPowerSaving(isStandby: true, reason: "HostSleep")
     }
 
     public func hostDidWake() {
@@ -192,6 +199,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             DispatchQueue.main.async { self.hostDidWake() }
             return
         }
+        powerLogger.notice("macOS host did wake notification received. Current isPowerSaving=\(self.isPowerSaving, privacy: .public). Maintaining zero-downlink standby to prevent DarkWake RF wakeups.")
         // If device is in power saving, remain in standby to prevent macOS DarkWake
         // and background maintenance from emitting RF packets and waking VibeKey overnight.
         // Device will immediately resume when the user presses any key.
@@ -298,6 +306,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         isPowerSaving = false
         lastActivityTime = Date()
 
+        powerLogger.info("VibeKey device attached (VID: \(VibeKeyDeviceInfo.vendorID, privacy: .public), PID: \(VibeKeyDeviceInfo.productID, privacy: .public)).")
         self.onDeviceConnected?()
         self.onDeviceInfoUpdated?(self.currentSnapshot)
 
@@ -448,7 +457,8 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         DispatchQueue.main.async {
             self.lastActivityTime = Date()
             if self.isPowerSaving {
-                self.resumeFromPowerSaving()
+                powerLogger.info("Wake report received on wake device callback. Resuming from standby.")
+                self.resumeFromPowerSaving(reason: "WakeReport")
             }
         }
     }
@@ -463,7 +473,8 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
                 DispatchQueue.main.async {
                     self.lastActivityTime = Date()
                     if self.isPowerSaving {
-                        self.resumeFromPowerSaving()
+                        powerLogger.info("Physical input detected (\(control.rawValue, privacy: .public)) while in standby. Resuming.")
+                        self.resumeFromPowerSaving(reason: "KeyEvent(\(control.rawValue))")
                     }
                     self.onEventReceived?(control, phase)
                 }
@@ -499,21 +510,26 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
                 switch notice {
                 case let .standby(isStandby):
                     if isStandby {
-                        self.enterPowerSaving(isStandby: true)
+                        powerLogger.info("Device standby notice packet received from VibeKey.")
+                        self.enterPowerSaving(isStandby: true, reason: "DeviceStandbyNotice")
                     } else {
                         self.lastActivityTime = Date()
-                        self.resumeFromPowerSaving()
+                        powerLogger.info("Device active/wake notice packet received from VibeKey.")
+                        self.resumeFromPowerSaving(reason: "DeviceStandbyNoticeExit")
                     }
                 case let .active(isActive):
                     if isActive {
                         self.lastActivityTime = Date()
-                        self.resumeFromPowerSaving()
+                        powerLogger.info("Device active notice received.")
+                        self.resumeFromPowerSaving(reason: "DeviceActiveNotice")
                     } else {
-                        self.enterPowerSaving(isStandby: true)
+                        powerLogger.info("Device inactive notice received.")
+                        self.enterPowerSaving(isStandby: true, reason: "DeviceInactiveNotice")
                     }
                 case .powerOn:
                     self.lastActivityTime = Date()
-                    self.resumeFromPowerSaving()
+                    powerLogger.info("Device powerOn notice received.")
+                    self.resumeFromPowerSaving(reason: "DevicePowerOnNotice")
                     self.refreshDeviceInfo()
                 }
             }
@@ -737,8 +753,10 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
                   !self.heartbeatInFlight else { return }
 
             // Inactivity Check: if device has been idle past standbyTimeoutSeconds (0 means disabled), enter power saving
-            if self.standbyTimeoutSeconds > 0 && Date().timeIntervalSince(self.lastActivityTime) >= self.standbyTimeoutSeconds {
-                self.enterPowerSaving(isStandby: true)
+            let elapsed = Date().timeIntervalSince(self.lastActivityTime)
+            if self.standbyTimeoutSeconds > 0 && elapsed >= self.standbyTimeoutSeconds {
+                powerLogger.info("Device idle threshold reached (\(Int(elapsed), privacy: .public)s >= \(Int(self.standbyTimeoutSeconds), privacy: .public)s). Entering standby power saving.")
+                self.enterPowerSaving(isStandby: true, reason: "InactivityTimeout")
                 return
             }
 

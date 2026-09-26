@@ -56,7 +56,12 @@ It provides complete control over hardware lighting, audio noise reduction, stan
 - **Smooth Mouse Scrolling**: High-precision line-based vertical mouse wheel scrolling.
 - **Asynchronous Shell Commands**: Trigger arbitrary terminal scripts and background workflows (`$ cmd`) on button events without freezing the UI.
 
-### 7. Full-Featured `vibekey` CLI Suite
+### 7. Sparkle 2 Auto-Update
+- **Automatic Background Checks**: Periodically checks for updates every 7 days in the background (`SUScheduledCheckInterval = 604800`).
+- **User Choice & Control**: Allows skipping versions, postponing reminders, or manual checking via "Check for Updates..." in the status bar context menu and settings panel.
+- **Cryptographic Security**: Enforces Ed25519 public key signature verification (`SUPublicEDKey`) for all binary downloads and feed items.
+
+### 8. Full-Featured `vibekey` CLI Suite
 - Manage all device capabilities directly from terminal scripts, Alfred/Raycast workflows, or automation daemons.
 
 ---
@@ -84,6 +89,27 @@ swift build -c release
 # Run comprehensive test suite
 swift test
 ```
+
+### 🔍 Verifying Standby Power Saving & Zero-Downlink Operation
+
+To eliminate overnight battery drain, VibeKey Elements halts all recurring 2.4G RF downlink packets (heartbeats and polling) once the device enters standby or when macOS sleeps. You can verify this behavior anytime using macOS Unified Logging:
+
+```bash
+# 1. Stream live power state transitions in real time
+log stream --predicate 'subsystem == "com.patrickfu.vibekey"' --level debug
+
+# 2. Query historical power events from the past 12 hours
+log show --predicate 'subsystem == "com.patrickfu.vibekey" and category == "Power"' --last 12h
+```
+
+**Expected Log Indicators**:
+- Entering standby: `Entering power saving mode (isStandby: true, reason: InactivityTimeout). Halting heartbeat & polling timers.`
+- Host sleep: `macOS host sleep/power-off notification received. Forcing standby power saving mode.`
+- Host wake: `Maintaining zero-downlink standby to prevent DarkWake RF wakeups.`
+- Instant wake: `Physical input detected (k1) while in standby. Resuming.`
+- Status Bar: A `💤` icon appears next to the battery percentage while the device is in low-power standby.
+
+---
 
 ### Using the CLI (`vibekey`)
 

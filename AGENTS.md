@@ -44,6 +44,30 @@ VibeKey Elements is a native Swift macOS hub and driver for the Ulanzi AU05 (Vib
 
 ---
 
+## 🔋 Power Management & Standby Invariants
+
+1. **Zero-Downlink RF Standby**:
+   - When device is idle past `standbyTimeoutSeconds`, or when macOS enters sleep (`hostWillSleep`), `enterPowerSaving(isStandby: true)` MUST halt all recurring timers (`heartbeatTimer`, `pollTimer`) and transmit `softwareOnline(false)`.
+   - Never transmit continuous downlink polling or heartbeats while in standby; doing so prevents the AU05 MCU from entering low-power standby and causes battery drain overnight.
+   - On physical key activity or wake input reports, `resumeFromPowerSaving()` restores online mode, heartbeat, and polling timers in milliseconds.
+2. **Unified Power Logging**:
+   - Power transitions must be logged via `os.Logger(subsystem: "com.patrickfu.vibekey", category: "Power")`.
+   - Log statements must be verifiable with `log stream --predicate 'subsystem == "com.patrickfu.vibekey"'`.
+
+---
+
+## 🔄 Auto-Update (Sparkle 2) Invariants
+
+1. **Updater Controller**:
+   - Instantiated via `SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: self)` in `AppDelegate`.
+   - Must implement `SPUStandardUserDriverDelegate` with `supportsGentleScheduledUpdateReminders` returning `true` for background menu bar apps.
+2. **Signing & Appcast**:
+   - Updates are verified against `SUPublicEDKey` (`xLcFpTMbuvJVcOJlZyap0OgZ2Tp8dJ1oC/BImxW2TaM=`).
+   - Private key is stored securely at `~/.config/vibekey/sparkle_ed25519_priv.key` and CI secret `SPARKLE_ED_PRIVATE_KEY`.
+   - New release tags generate/update `appcast.xml` via `generate_appcast --ed-key-file -`.
+
+---
+
 ## 🧪 Testing & Verification
 
 - Run `swift test` before submitting changes. All tests must pass with 0 failures.

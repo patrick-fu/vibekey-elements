@@ -1,3 +1,4 @@
+import Sparkle
 import AppKit
 import Foundation
 import VibeKeyCore
@@ -8,6 +9,7 @@ final class SettingsViewController: NSViewController {
     var onResetHardwareRequested: (() -> Void)?
     var onResetKeysRequested: (() -> Void)?
     var onRebootRequested: (() -> Void)?
+    var onCheckUpdatesRequested: (() -> Void)?
     var onQuitRequested: (() -> Void)?
 
     private var config: VibeKeyConfiguration
@@ -92,11 +94,15 @@ final class SettingsViewController: NSViewController {
         refreshBtn.bezelStyle = .rounded
         refreshBtn.font = .systemFont(ofSize: 11)
 
+        let checkUpdateBtn = NSButton(title: "检查更新…", target: self, action: #selector(handleCheckUpdateClicked))
+        checkUpdateBtn.bezelStyle = .rounded
+        checkUpdateBtn.font = .systemFont(ofSize: 11)
+
         let quitBtn = NSButton(title: "退出", target: self, action: #selector(handleQuitClicked))
         quitBtn.bezelStyle = .rounded
         quitBtn.font = .systemFont(ofSize: 11)
 
-        let bottomStack = NSStackView(views: [refreshBtn, NSView(), quitBtn])
+        let bottomStack = NSStackView(views: [refreshBtn, checkUpdateBtn, NSView(), quitBtn])
         bottomStack.orientation = .horizontal
         bottomStack.alignment = .centerY
         bottomStack.spacing = 8
@@ -480,12 +486,17 @@ final class SettingsViewController: NSViewController {
         onRefreshRequested?()
     }
 
+    @objc private func handleCheckUpdateClicked() {
+        onCheckUpdatesRequested?()
+    }
+
     @objc private func handleQuitClicked() {
         onQuitRequested?()
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverDelegate {
+    private var updaterController: SPUStandardUpdaterController?
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var settingsVC: SettingsViewController?
@@ -496,6 +507,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var currentSnapshot = VibeKeyDeviceInfoSnapshot()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        self.updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: self)
         loadConfiguration()
         setupStatusItem()
         setupPopover()
@@ -614,6 +626,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         vc.onRebootRequested = {
             VibeKeyHIDManager.shared.rebootDevice()
         }
+        vc.onCheckUpdatesRequested = { [weak self] in
+            guard let self = self else { return }
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            self.updaterController?.checkForUpdates(nil)
+        }
         vc.onQuitRequested = {
             NSApplication.shared.terminate(nil)
         }
@@ -672,8 +689,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        // 2. Open Settings Window
+        // 2. Open Settings Window & Sparkle Updates
         menu.addItem(NSMenuItem(title: "打开控制面板…", action: #selector(handleOpenPopover), keyEquivalent: ","))
+        let updateMenuItem = NSMenuItem(title: "检查更新…", action: #selector(handleCheckForUpdates), keyEquivalent: "")
+        updateMenuItem.target = self
+        menu.addItem(updateMenuItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -828,6 +848,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         VibeKeyHIDManager.shared.rebootDevice()
     }
 
+    @objc private func handleCheckForUpdates() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        updaterController?.checkForUpdates(nil)
+    }
+
     private func updateStatusItemDisplay(overrideText: String? = nil) {
         guard let button = statusItem?.button else { return }
 
@@ -942,6 +967,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func handleQuit() {
         NSApplication.shared.terminate(nil)
+    }
+
+    var supportsGentleScheduledUpdateReminders: Bool {
+        return true
+    }
+
+    func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState) {
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 }
 
