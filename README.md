@@ -52,7 +52,14 @@ It provides complete control over hardware lighting, audio noise reduction, stan
 
 ## 🚀 Quick Start
 
-### Building from Source
+### 📥 Direct Download (Apple Notarized DMG)
+
+Download the latest signed and notarized DMG directly from GitHub Releases:
+- 📦 **[Download VibeKey-Elements-macOS-arm64.dmg](https://github.com/patrick-fu/vibekey-elements/releases/latest/download/VibeKey-Elements-macOS-arm64.dmg)**
+
+*(Verified and notarized by Apple; no Gatekeeper bypass or quarantine removal required.)*
+
+### 🛠 Building from Source
 
 Requirements: macOS 13.0+ and Xcode 15+ / Swift 5.9+.
 

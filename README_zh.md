@@ -55,7 +55,14 @@
 
 ## 🚀 快速上手
 
-### 源码编译
+### 📥 直接下载（Apple 官方公证 DMG）
+
+从 GitHub Releases 直接下载最新已通过苹果公证的安装包：
+- 📦 **[下载 VibeKey-Elements-macOS-arm64.dmg](https://github.com/patrick-fu/vibekey-elements/releases/latest/download/VibeKey-Elements-macOS-arm64.dmg)**
+
+*(已通过 Apple Developer ID 签名并盖戳公证，双击即可无警告直接运行。)*
+
+### 🛠 源码编译
 
 环境要求：macOS 13.0+，Xcode 15+ / Swift 5.9+。
 
