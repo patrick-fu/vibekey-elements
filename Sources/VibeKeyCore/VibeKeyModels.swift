@@ -75,6 +75,9 @@ public struct VibeKeyDeviceInfoSnapshot: Equatable, Sendable {
     public var standbyTimeSeconds: UInt32?
     public var sleepTimeSeconds: UInt32?
     public var isStandby: Bool
+    public var micNoiseReduction: UInt8?
+    public var micEnabled: Bool?
+    public var ledMode: LEDMode?
 
     public init(
         isConnected: Bool = false,
@@ -83,7 +86,10 @@ public struct VibeKeyDeviceInfoSnapshot: Equatable, Sendable {
         battery: VibeKeyBatteryStatus? = nil,
         standbyTimeSeconds: UInt32? = nil,
         sleepTimeSeconds: UInt32? = nil,
-        isStandby: Bool = false
+        isStandby: Bool = false,
+        micNoiseReduction: UInt8? = nil,
+        micEnabled: Bool? = nil,
+        ledMode: LEDMode? = nil
     ) {
         self.isConnected = isConnected
         self.firmwareVersion = firmwareVersion
@@ -92,6 +98,9 @@ public struct VibeKeyDeviceInfoSnapshot: Equatable, Sendable {
         self.standbyTimeSeconds = standbyTimeSeconds
         self.sleepTimeSeconds = sleepTimeSeconds
         self.isStandby = isStandby
+        self.micNoiseReduction = micNoiseReduction
+        self.micEnabled = micEnabled
+        self.ledMode = ledMode
     }
 }
 
@@ -99,13 +108,24 @@ public enum VibeKeyPowerResponse: Equatable, Sendable {
     case battery(VibeKeyBatteryStatus)
     case standbyTime(seconds: UInt32)
     case sleepTime(seconds: UInt32)
+    case micNR(level: UInt8)
+    case micEnabled(Bool)
 }
 
 public enum LEDMode: String, Codable, CaseIterable, Sendable {
+    case auto = "auto"
     case solid = "solid"
     case breathing = "breathing"
     case off = "off"
-    case auto = "auto"
+
+    public var displayName: String {
+        switch self {
+        case .auto: return "硬件自管 (出厂默认)"
+        case .solid: return "柔和常亮"
+        case .breathing: return "优雅呼吸"
+        case .off: return "指示灯全灭"
+        }
+    }
 }
 
 public enum AgentHookState: String, Codable, CaseIterable, Sendable {
@@ -162,7 +182,7 @@ public enum PresetAction: String, CaseIterable, Codable, Sendable {
         case .cmdDelete: return .keySequence(keys: ["command", "delete"])
         case .scrollUp: return .mouseWheel(direction: .up)
         case .scrollDown: return .mouseWheel(direction: .down)
-        case .selectAll: return .keySequence(keys: ["option", "command", "a"])
+        case .selectAll: return .keySequence(keys: ["command", "a"])
         case .copy: return .keySequence(keys: ["command", "c"])
         case .paste: return .keySequence(keys: ["command", "v"])
         case .undo: return .keySequence(keys: ["command", "z"])
@@ -216,25 +236,6 @@ public enum ActionConfig: Codable, Equatable, Sendable {
             try container.encode(command, forKey: .command)
         }
     }
-
-    public var summary: String {
-        switch self {
-        case let .keySequence(keys):
-            if keys.isEmpty { return "无动作" }
-            if keys == ["fn"] { return "Fn" }
-            if keys == ["return"] { return "Enter" }
-            if keys == ["command", "delete"] { return "⌘ Delete" }
-            if keys == ["option", "command", "a"] { return "⌘A" }
-            if keys == ["command", "c"] { return "⌘C" }
-            if keys == ["command", "v"] { return "⌘V" }
-            if keys == ["command", "z"] { return "⌘Z" }
-            return keys.joined(separator: " + ")
-        case let .mouseWheel(direction):
-            return direction == .up ? "滚轮向上" : "滚轮向下"
-        case let .shellCommand(command):
-            return "Shell: \(command.prefix(15))..."
-        }
-    }
 }
 
 public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
@@ -244,6 +245,11 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
     public var knobLeft: ActionConfig
     public var knobRight: ActionConfig
     public var knobPress: ActionConfig
+    public var micNoiseReduction: UInt8
+    public var micEnabled: Bool
+    public var ledMode: LEDMode
+    public var standbySeconds: UInt32
+    public var sleepSeconds: UInt32
 
     public init(
         topButton: ActionConfig = .keySequence(keys: ["fn"]),
@@ -251,7 +257,12 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
         bottomButton: ActionConfig = .keySequence(keys: ["command", "delete"]),
         knobLeft: ActionConfig = .mouseWheel(direction: .down),
         knobRight: ActionConfig = .mouseWheel(direction: .up),
-        knobPress: ActionConfig = .keySequence(keys: ["option", "command", "a"])
+        knobPress: ActionConfig = .keySequence(keys: ["option", "command", "a"]),
+        micNoiseReduction: UInt8 = 0,
+        micEnabled: Bool = true,
+        ledMode: LEDMode = .auto,
+        standbySeconds: UInt32 = 300,
+        sleepSeconds: UInt32 = 3600
     ) {
         self.topButton = topButton
         self.middleButton = middleButton
@@ -259,10 +270,16 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
         self.knobLeft = knobLeft
         self.knobRight = knobRight
         self.knobPress = knobPress
+        self.micNoiseReduction = micNoiseReduction
+        self.micEnabled = micEnabled
+        self.ledMode = ledMode
+        self.standbySeconds = standbySeconds
+        self.sleepSeconds = sleepSeconds
     }
 
     enum CodingKeys: String, CodingKey {
         case topButton, middleButton, bottomButton, knobLeft, knobRight, knobPress
+        case micNoiseReduction, micEnabled, ledMode, standbySeconds, sleepSeconds
     }
 
     public init(from decoder: Decoder) throws {
@@ -273,6 +290,11 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
         self.knobLeft = try container.decodeIfPresent(ActionConfig.self, forKey: .knobLeft) ?? .mouseWheel(direction: .down)
         self.knobRight = try container.decodeIfPresent(ActionConfig.self, forKey: .knobRight) ?? .mouseWheel(direction: .up)
         self.knobPress = try container.decodeIfPresent(ActionConfig.self, forKey: .knobPress) ?? .keySequence(keys: ["option", "command", "a"])
+        self.micNoiseReduction = try container.decodeIfPresent(UInt8.self, forKey: .micNoiseReduction) ?? 0
+        self.micEnabled = try container.decodeIfPresent(Bool.self, forKey: .micEnabled) ?? true
+        self.ledMode = try container.decodeIfPresent(LEDMode.self, forKey: .ledMode) ?? .auto
+        self.standbySeconds = try container.decodeIfPresent(UInt32.self, forKey: .standbySeconds) ?? 300
+        self.sleepSeconds = try container.decodeIfPresent(UInt32.self, forKey: .sleepSeconds) ?? 3600
     }
 
     public func action(for control: InputControl) -> ActionConfig {

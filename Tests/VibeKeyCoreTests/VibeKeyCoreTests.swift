@@ -179,7 +179,6 @@ final class VibeKeyCoreTests: XCTestCase {
         let decoded = try JSONDecoder().decode(VibeKeyConfiguration.self, from: data)
         XCTAssertEqual(config, decoded)
     }
-}
 
     // MARK: - 7. Firmware Version, SN Chunks & Device Notices
 
@@ -229,3 +228,54 @@ final class VibeKeyCoreTests: XCTestCase {
         let powerOnPlain: [UInt8] = [0x0B, 0xF0, 0x00, 0x00]
         XCTAssertEqual(VibeKeyParser.parseDeviceNotice(plaintext: powerOnPlain), .powerOn)
     }
+
+    // MARK: - 8. Mic NR, Mic Enable, Reboot & Power Command Packets
+
+    func testMicNRAndEnablePackets() throws {
+        let nrReport = try VibeKeyPacketBuilder.setNoiseReductionReport(level: 2)
+        XCTAssertEqual(nrReport.count, 64)
+        XCTAssertEqual(nrReport[0], 0x55)
+
+        let nrQuery = try VibeKeyPacketBuilder.noiseReductionQueryReport()
+        XCTAssertEqual(nrQuery.count, 64)
+
+        let micEnableReport = try VibeKeyPacketBuilder.setMicrophoneEnableReport(enabled: true)
+        XCTAssertEqual(micEnableReport.count, 64)
+
+        let micMuteReport = try VibeKeyPacketBuilder.setMicrophoneEnableReport(enabled: false)
+        XCTAssertEqual(micMuteReport.count, 64)
+
+        let rebootReport = try VibeKeyPacketBuilder.rebootReport()
+        XCTAssertEqual(rebootReport.count, 64)
+
+        let standbyCmd = try VibeKeyPacketBuilder.setStandbyTimeoutReport(seconds: 900)
+        XCTAssertEqual(standbyCmd.count, 64)
+
+        let sleepCmd = try VibeKeyPacketBuilder.setSleepTimeoutReport(seconds: 7200)
+        XCTAssertEqual(sleepCmd.count, 64)
+    }
+
+    func testMicNRAndEnableResponseParsing() throws {
+        // Plaintext response for NR: 81 01 90 11 02 ...
+        var plaintextNR = [UInt8](repeating: 0, count: 56)
+        plaintextNR[0] = 0x81
+        plaintextNR[1] = 0x01
+        plaintextNR[2] = 0x90
+        plaintextNR[3] = 0x11
+        plaintextNR[4] = 0x02 // level 2
+
+        let nrResp = VibeKeyParser.parsePowerResponse(plaintext: plaintextNR)
+        XCTAssertEqual(nrResp, .micNR(level: 2))
+
+        // Plaintext response for Mic Enable: 81 01 2A 11 01 ...
+        var plaintextMic = [UInt8](repeating: 0, count: 56)
+        plaintextMic[0] = 0x81
+        plaintextMic[1] = 0x01
+        plaintextMic[2] = 0x2A
+        plaintextMic[3] = 0x11
+        plaintextMic[4] = 0x01 // enabled
+
+        let micResp = VibeKeyParser.parsePowerResponse(plaintext: plaintextMic)
+        XCTAssertEqual(micResp, .micEnabled(true))
+    }
+}

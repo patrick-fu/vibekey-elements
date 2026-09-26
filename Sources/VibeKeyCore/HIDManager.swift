@@ -320,6 +320,10 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
                     self.currentSnapshot.standbyTimeSeconds = sec
                 case let .sleepTime(sec):
                     self.currentSnapshot.sleepTimeSeconds = sec
+                case let .micNR(level):
+                    self.currentSnapshot.micNoiseReduction = level
+                case let .micEnabled(enabled):
+                    self.currentSnapshot.micEnabled = enabled
                 }
                 self.onDeviceInfoUpdated?(self.currentSnapshot)
             }
@@ -369,6 +373,125 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             // 3. Query Serial Number
             if let rep = try? VibeKeyPacketBuilder.serialNumberQueryReport() {
                 _ = try? self.sendReportSync(rep, to: device)
+            }
+            usleep(25_000)
+
+            // 4. Query Standby & Sleep times
+            if let rep = try? VibeKeyPacketBuilder.powerQueryReport(commandID: 0x2C) {
+                _ = try? self.sendReportSync(rep, to: device)
+            }
+            usleep(25_000)
+            if let rep = try? VibeKeyPacketBuilder.powerQueryReport(commandID: 0x42) {
+                _ = try? self.sendReportSync(rep, to: device)
+            }
+            usleep(25_000)
+
+            // 5. Query Mic NR & Mic Enable
+            if let rep = try? VibeKeyPacketBuilder.noiseReductionQueryReport() {
+                _ = try? self.sendReportSync(rep, to: device)
+            }
+            usleep(25_000)
+            if let rep = try? VibeKeyPacketBuilder.microphoneEnableQueryReport() {
+                _ = try? self.sendReportSync(rep, to: device)
+            }
+        }
+    }
+
+    public func setNoiseReduction(level: UInt8) {
+        guard let rep = try? VibeKeyPacketBuilder.setNoiseReductionReport(level: level) else { return }
+        try? sendCommand(rep)
+    }
+
+    public func setMicrophoneEnabled(_ enabled: Bool) {
+        guard let rep = try? VibeKeyPacketBuilder.setMicrophoneEnableReport(enabled: enabled) else { return }
+        try? sendCommand(rep)
+    }
+
+    public func setLEDMode(_ mode: LEDMode) {
+        if mode == .auto {
+            guard let rep = try? VibeKeyPacketBuilder.resetLEDReport() else { return }
+            try? sendCommand(rep)
+        } else {
+            guard let rep = try? VibeKeyPacketBuilder.setLEDReport(channel: 0, mode: mode, brightness: 100) else { return }
+            try? sendCommand(rep)
+        }
+    }
+
+    public func setStandbyTimeout(seconds: UInt32) {
+        guard let rep = try? VibeKeyPacketBuilder.setStandbyTimeoutReport(seconds: seconds) else { return }
+        try? sendCommand(rep)
+    }
+
+    public func setSleepTimeout(seconds: UInt32) {
+        guard let rep = try? VibeKeyPacketBuilder.setSleepTimeoutReport(seconds: seconds) else { return }
+        try? sendCommand(rep)
+    }
+
+    public func rebootDevice() {
+        guard let device = connectedDevice else { return }
+        ioQueue.async { [weak self] in
+            guard let self = self else { return }
+            if let rep = try? VibeKeyPacketBuilder.rebootReport() {
+                _ = try? self.sendReportSync(rep, to: device)
+            }
+        }
+    }
+
+    public func resetHardwareDefaults() {
+        guard let device = connectedDevice else { return }
+        ioQueue.async { [weak self] in
+            guard let self = self else { return }
+            // 1. Reset Hooks & Audio system mode
+            if let rep = try? VibeKeyPacketBuilder.setHooksModeReport(enabled: false) {
+                _ = try? self.sendReportSync(rep, to: device)
+            }
+            usleep(25_000)
+            if let rep = try? VibeKeyPacketBuilder.setAudioButtonSystemModeReport(enabled: false) {
+                _ = try? self.sendReportSync(rep, to: device)
+            }
+            usleep(25_000)
+
+            // 2. Reset LED to hardware auto (mode 2)
+            if let rep = try? VibeKeyPacketBuilder.resetLEDReport() {
+                _ = try? self.sendReportSync(rep, to: device)
+            }
+            usleep(25_000)
+
+            // 3. Reset Mic NR to 0 (off)
+            if let rep = try? VibeKeyPacketBuilder.setNoiseReductionReport(level: 0) {
+                _ = try? self.sendReportSync(rep, to: device)
+            }
+            usleep(25_000)
+
+            // 4. Reset Mic Enable to true
+            if let rep = try? VibeKeyPacketBuilder.setMicrophoneEnableReport(enabled: true) {
+                _ = try? self.sendReportSync(rep, to: device)
+            }
+            usleep(25_000)
+
+            // 5. Reset Standby to factory 300s
+            if let rep = try? VibeKeyPacketBuilder.setStandbyTimeoutReport(seconds: 300) {
+                _ = try? self.sendReportSync(rep, to: device)
+            }
+            usleep(25_000)
+
+            // 6. Reset Sleep to factory 3600s
+            if let rep = try? VibeKeyPacketBuilder.setSleepTimeoutReport(seconds: 3600) {
+                _ = try? self.sendReportSync(rep, to: device)
+            }
+            usleep(25_000)
+
+            // 7. Software online reaffirmation & initial heartbeat
+            if let onlineRep = try? VibeKeyPacketBuilder.softwareOnlineReport(true) {
+                _ = try? self.sendReportSync(onlineRep, to: device)
+            }
+            usleep(25_000)
+            if let hbRep = try? VibeKeyPacketBuilder.heartbeatReport() {
+                _ = try? self.sendReportSync(hbRep, to: device)
+            }
+
+            DispatchQueue.main.async {
+                self.refreshDeviceInfo()
             }
         }
     }

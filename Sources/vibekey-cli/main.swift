@@ -69,6 +69,8 @@ struct CLIHelper {
           led <0-3> <mode> [brightness]    Control LED (modes: solid, breathing, off, auto; brightness: 0-100)
           reset-led                        Reset LED to default hardware control
           hook <state>                     Trigger AI Agent state (thinking, working, error, idle)
+          reboot                           Soft reboot AU05 hardware
+          reset-hardware                   Reset all device hardware settings to factory defaults
           help                             Show this help message
 
         EXAMPLES:
@@ -231,6 +233,45 @@ case "hook":
         }
         print(success ? "💤 [AI Hook] State: IDLE (LED auto)" : "❌ Failed to send hook state")
     }
+
+case "reboot":
+    guard let session = CLIDeviceSession.open() else {
+        print("❌ Device not found.")
+        exit(1)
+    }
+    if let report = try? VibeKeyPacketBuilder.rebootReport() {
+        if session.sendReport(report) {
+            print("✅ Reboot command sent to device.")
+        } else {
+            print("❌ Failed to send reboot command.")
+            exit(1)
+        }
+    }
+
+case "reset-hardware":
+    guard let session = CLIDeviceSession.open() else {
+        print("❌ Device not found.")
+        exit(1)
+    }
+    print("🔄 Resetting hardware settings to factory defaults...")
+    if let rep = try? VibeKeyPacketBuilder.setHooksModeReport(enabled: false) { _ = session.sendReport(rep) }
+    usleep(25_000)
+    if let rep = try? VibeKeyPacketBuilder.setAudioButtonSystemModeReport(enabled: false) { _ = session.sendReport(rep) }
+    usleep(25_000)
+    if let rep = try? VibeKeyPacketBuilder.resetLEDReport() { _ = session.sendReport(rep) }
+    usleep(25_000)
+    if let rep = try? VibeKeyPacketBuilder.setNoiseReductionReport(level: 0) { _ = session.sendReport(rep) }
+    usleep(25_000)
+    if let rep = try? VibeKeyPacketBuilder.setMicrophoneEnableReport(enabled: true) { _ = session.sendReport(rep) }
+    usleep(25_000)
+    if let rep = try? VibeKeyPacketBuilder.setStandbyTimeoutReport(seconds: 300) { _ = session.sendReport(rep) }
+    usleep(25_000)
+    if let rep = try? VibeKeyPacketBuilder.setSleepTimeoutReport(seconds: 3600) { _ = session.sendReport(rep) }
+    usleep(25_000)
+    if let rep = try? VibeKeyPacketBuilder.softwareOnlineReport(true) { _ = session.sendReport(rep) }
+    usleep(25_000)
+    if let rep = try? VibeKeyPacketBuilder.heartbeatReport() { _ = session.sendReport(rep) }
+    print("✅ All hardware parameters restored to factory defaults (NR=0, Mic=On, LED=Auto, Standby=300s, Sleep=3600s, Hooks=0).")
 
 default:
     print("❌ Unknown command: \(command)")

@@ -5,6 +5,9 @@ import VibeKeyCore
 final class SettingsViewController: NSViewController {
     var onConfigurationChanged: ((VibeKeyConfiguration) -> Void)?
     var onRefreshRequested: (() -> Void)?
+    var onResetHardwareRequested: (() -> Void)?
+    var onResetKeysRequested: (() -> Void)?
+    var onRebootRequested: (() -> Void)?
     var onQuitRequested: (() -> Void)?
 
     private var config: VibeKeyConfiguration
@@ -16,12 +19,17 @@ final class SettingsViewController: NSViewController {
     private let hardwareInfoLabel = NSTextField(labelWithString: "")
 
     private var popupButtons: [InputControl: NSPopUpButton] = [:]
+    private var nrPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private var micEnablePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private var ledPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private var standbyPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private var sleepPopup = NSPopUpButton(frame: .zero, pullsDown: false)
 
     init(config: VibeKeyConfiguration, snapshot: VibeKeyDeviceInfoSnapshot) {
         self.config = config
         self.currentSnapshot = snapshot
         super.init(nibName: nil, bundle: nil)
-        self.preferredContentSize = NSSize(width: 390, height: 415)
+        self.preferredContentSize = NSSize(width: 440, height: 630)
     }
 
     @available(*, unavailable)
@@ -30,8 +38,9 @@ final class SettingsViewController: NSViewController {
     }
 
     override func loadView() {
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 390, height: 415))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 630))
 
+        // 1. Header
         titleLabel.font = .systemFont(ofSize: 16, weight: .bold)
 
         subtitleLabel.font = .systemFont(ofSize: 11)
@@ -46,58 +55,119 @@ final class SettingsViewController: NSViewController {
         hardwareInfoLabel.maximumNumberOfLines = 2
         hardwareInfoLabel.lineBreakMode = .byWordWrapping
 
-        let statusStack = NSStackView(views: [statusLabel, hardwareInfoLabel])
-        statusStack.orientation = .vertical
-        statusStack.alignment = .leading
-        statusStack.spacing = 3
+        let headerStack = NSStackView(views: [titleLabel, subtitleLabel, statusLabel, hardwareInfoLabel])
+        headerStack.orientation = .vertical
+        headerStack.alignment = .leading
+        headerStack.spacing = 3
 
+        // 2. Mapping Section
+        let mappingHeading = makeSectionHeader("按键与旋钮映射")
         let mappingGrid = makeMappingGrid()
 
+        // 3. Hardware Settings Section
+        let hardwareHeading = makeSectionHeader("硬件功能调节")
+        let hardwareGrid = makeHardwareGrid()
+
+        // 4. Hardware Maintenance Section
+        let maintenanceHeading = makeSectionHeader("硬件维护与复位")
+        let resetKeysBtn = NSButton(title: "恢复默认按键", target: self, action: #selector(handleResetKeysClicked))
+        resetKeysBtn.bezelStyle = .rounded
+        resetKeysBtn.font = .systemFont(ofSize: 11)
+
+        let resetHwBtn = NSButton(title: "出厂硬件复位", target: self, action: #selector(handleResetHwClicked))
+        resetHwBtn.bezelStyle = .rounded
+        resetHwBtn.font = .systemFont(ofSize: 11)
+
+        let rebootBtn = NSButton(title: "重启设备", target: self, action: #selector(handleRebootClicked))
+        rebootBtn.bezelStyle = .rounded
+        rebootBtn.font = .systemFont(ofSize: 11)
+
+        let maintenanceStack = NSStackView(views: [resetKeysBtn, resetHwBtn, rebootBtn])
+        maintenanceStack.orientation = .horizontal
+        maintenanceStack.alignment = .centerY
+        maintenanceStack.spacing = 8
+
+        // 5. Action Buttons
         let refreshBtn = NSButton(title: "刷新信息", target: self, action: #selector(handleRefreshClicked))
         refreshBtn.bezelStyle = .rounded
-        refreshBtn.font = .systemFont(ofSize: 12)
+        refreshBtn.font = .systemFont(ofSize: 11)
 
         let quitBtn = NSButton(title: "退出", target: self, action: #selector(handleQuitClicked))
         quitBtn.bezelStyle = .rounded
-        quitBtn.font = .systemFont(ofSize: 12)
+        quitBtn.font = .systemFont(ofSize: 11)
 
         let bottomStack = NSStackView(views: [refreshBtn, NSView(), quitBtn])
         bottomStack.orientation = .horizontal
         bottomStack.alignment = .centerY
-        bottomStack.spacing = 10
+        bottomStack.spacing = 8
+
+        // Separators
+        let sep1 = makeSeparator()
+        let sep2 = makeSeparator()
+        let sep3 = makeSeparator()
+        let sep4 = makeSeparator()
 
         let mainStack = NSStackView(views: [
-            titleLabel,
-            subtitleLabel,
-            statusStack,
+            headerStack,
+            sep1,
+            mappingHeading,
             mappingGrid,
+            sep2,
+            hardwareHeading,
+            hardwareGrid,
+            sep3,
+            maintenanceHeading,
+            maintenanceStack,
+            sep4,
             bottomStack
         ])
         mainStack.orientation = .vertical
         mainStack.alignment = .leading
-        mainStack.spacing = 14
+        mainStack.spacing = 8
         mainStack.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(mainStack)
 
-        // Make sure vertical compression never squashes labels into each other
-        titleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
-        subtitleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
-        statusStack.setContentCompressionResistancePriority(.required, for: .vertical)
+        // Compression resistance
+        headerStack.setContentCompressionResistancePriority(.required, for: .vertical)
         mappingGrid.setContentCompressionResistancePriority(.required, for: .vertical)
+        hardwareGrid.setContentCompressionResistancePriority(.required, for: .vertical)
+        maintenanceStack.setContentCompressionResistancePriority(.required, for: .vertical)
         bottomStack.setContentCompressionResistancePriority(.required, for: .vertical)
 
         NSLayoutConstraint.activate([
-            mainStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
-            mainStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
-            mainStack.topAnchor.constraint(equalTo: root.topAnchor, constant: 18),
-            mainStack.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -18),
-            statusStack.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
+            mainStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 18),
+            mainStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -18),
+            mainStack.topAnchor.constraint(equalTo: root.topAnchor, constant: 14),
+            mainStack.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -14),
+            headerStack.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
+            sep1.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
+            mappingHeading.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
             mappingGrid.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
+            sep2.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
+            hardwareHeading.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
+            hardwareGrid.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
+            sep3.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
+            maintenanceHeading.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
+            maintenanceStack.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
+            sep4.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
             bottomStack.widthAnchor.constraint(equalTo: mainStack.widthAnchor)
         ])
 
         self.view = root
         updateUI()
+    }
+
+    private func makeSectionHeader(_ title: String) -> NSTextField {
+        let label = NSTextField(labelWithString: title)
+        label.font = .systemFont(ofSize: 11, weight: .bold)
+        label.textColor = .secondaryLabelColor
+        return label
+    }
+
+    private func makeSeparator() -> NSBox {
+        let box = NSBox()
+        box.boxType = .separator
+        return box
     }
 
     private func makeMappingGrid() -> NSGridView {
@@ -127,14 +197,121 @@ final class SettingsViewController: NSViewController {
                 popup.menu?.addItem(item)
             }
 
-            popup.widthAnchor.constraint(greaterThanOrEqualToConstant: 210).isActive = true
+            popup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
             popup.heightAnchor.constraint(equalToConstant: 24).isActive = true
             popupButtons[control] = popup
             rows.append([label, popup])
         }
 
         let grid = NSGridView(views: rows)
-        grid.rowSpacing = 8
+        grid.rowSpacing = 5
+        grid.columnSpacing = 16
+        grid.column(at: 0).xPlacement = .leading
+        grid.column(at: 1).xPlacement = .fill
+        return grid
+    }
+
+    private func makeHardwareGrid() -> NSGridView {
+        // 1. Noise reduction
+        let nrLabel = NSTextField(labelWithString: "麦克风硬件降噪")
+        nrLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        nrPopup.font = .systemFont(ofSize: 12)
+        nrPopup.target = self
+        nrPopup.action = #selector(handleNRChanged(_:))
+        let nrOptions: [(String, UInt8)] = [
+            ("关闭 (0 档)", 0),
+            ("低降噪 (1 档)", 1),
+            ("中降噪 (2 档)", 2),
+            ("高降噪 (3 档)", 3)
+        ]
+        for (name, lvl) in nrOptions {
+            let item = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+            item.tag = Int(lvl)
+            nrPopup.menu?.addItem(item)
+        }
+        nrPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+        nrPopup.heightAnchor.constraint(equalToConstant: 24).isActive = true
+
+        // 2. Microphone Enable/Mute
+        let micLabel = NSTextField(labelWithString: "麦克风收音开关")
+        micLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        micEnablePopup.font = .systemFont(ofSize: 12)
+        micEnablePopup.target = self
+        micEnablePopup.action = #selector(handleMicEnableChanged(_:))
+        let micOptions: [(String, Int)] = [
+            ("开启收音 (默认)", 1),
+            ("静音关闭", 0)
+        ]
+        for (name, val) in micOptions {
+            let item = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+            item.tag = val
+            micEnablePopup.menu?.addItem(item)
+        }
+        micEnablePopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+        micEnablePopup.heightAnchor.constraint(equalToConstant: 24).isActive = true
+
+        // 3. LED illumination
+        let ledLabel = NSTextField(labelWithString: "机身指示灯模式")
+        ledLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        ledPopup.font = .systemFont(ofSize: 12)
+        ledPopup.target = self
+        ledPopup.action = #selector(handleLEDChanged(_:))
+        for mode in LEDMode.allCases {
+            let item = NSMenuItem(title: mode.displayName, action: nil, keyEquivalent: "")
+            item.representedObject = mode
+            ledPopup.menu?.addItem(item)
+        }
+        ledPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+        ledPopup.heightAnchor.constraint(equalToConstant: 24).isActive = true
+
+        // 4. Standby delay
+        let standbyLabel = NSTextField(labelWithString: "闲置待机时间")
+        standbyLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        standbyPopup.font = .systemFont(ofSize: 12)
+        standbyPopup.target = self
+        standbyPopup.action = #selector(handleStandbyChanged(_:))
+        let standbyOptions: [(String, UInt32)] = [
+            ("5 分钟 (出厂默认)", 300),
+            ("15 分钟", 900),
+            ("30 分钟 (推荐)", 1800),
+            ("从不待机", 0)
+        ]
+        for (name, sec) in standbyOptions {
+            let item = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+            item.tag = Int(sec)
+            standbyPopup.menu?.addItem(item)
+        }
+        standbyPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+        standbyPopup.heightAnchor.constraint(equalToConstant: 24).isActive = true
+
+        // 5. Sleep delay
+        let sleepLabel = NSTextField(labelWithString: "深度休眠时间")
+        sleepLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        sleepPopup.font = .systemFont(ofSize: 12)
+        sleepPopup.target = self
+        sleepPopup.action = #selector(handleSleepChanged(_:))
+        let sleepOptions: [(String, UInt32)] = [
+            ("30 分钟", 1800),
+            ("1 小时 (出厂默认)", 3600),
+            ("2 小时", 7200),
+            ("4 小时", 14400)
+        ]
+        for (name, sec) in sleepOptions {
+            let item = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+            item.tag = Int(sec)
+            sleepPopup.menu?.addItem(item)
+        }
+        sleepPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+        sleepPopup.heightAnchor.constraint(equalToConstant: 24).isActive = true
+
+        let grid = NSGridView(views: [
+            [nrLabel, nrPopup],
+            [micLabel, micEnablePopup],
+            [ledLabel, ledPopup],
+            [standbyLabel, standbyPopup],
+            [sleepLabel, sleepPopup]
+        ])
+        grid.rowSpacing = 5
         grid.columnSpacing = 16
         grid.column(at: 0).xPlacement = .leading
         grid.column(at: 1).xPlacement = .fill
@@ -170,7 +347,7 @@ final class SettingsViewController: NSViewController {
             hardwareInfoLabel.stringValue = "请插入 2.4G 接收器或通过 USB 连接"
         }
 
-        // Update popup selections & checkmark states
+        // 1. Update mapping popup selections & checkmark states
         for (control, popup) in popupButtons {
             let action = config.action(for: control)
             let matchingPreset = PresetAction.allCases.first(where: { $0.actionConfig == action }) ?? .none
@@ -182,6 +359,49 @@ final class SettingsViewController: NSViewController {
             if let matchingItem = popup.itemArray.first(where: { ($0.representedObject as? PresetAction) == matchingPreset }) {
                 popup.select(matchingItem)
             }
+        }
+
+        // 2. Update NR popup
+        for item in nrPopup.itemArray {
+            item.state = (UInt8(item.tag) == config.micNoiseReduction) ? .on : .off
+        }
+        if let nrItem = nrPopup.itemArray.first(where: { UInt8($0.tag) == config.micNoiseReduction }) {
+            nrPopup.select(nrItem)
+        }
+
+        // 3. Update Mic Enable popup
+        let micTag = config.micEnabled ? 1 : 0
+        for item in micEnablePopup.itemArray {
+            item.state = (item.tag == micTag) ? .on : .off
+        }
+        if let micItem = micEnablePopup.itemArray.first(where: { $0.tag == micTag }) {
+            micEnablePopup.select(micItem)
+        }
+
+        // 4. Update LED popup
+        for item in ledPopup.itemArray {
+            if let m = item.representedObject as? LEDMode {
+                item.state = (m == config.ledMode) ? .on : .off
+            }
+        }
+        if let ledItem = ledPopup.itemArray.first(where: { ($0.representedObject as? LEDMode) == config.ledMode }) {
+            ledPopup.select(ledItem)
+        }
+
+        // 5. Update Standby popup
+        for item in standbyPopup.itemArray {
+            item.state = (UInt32(item.tag) == config.standbySeconds) ? .on : .off
+        }
+        if let standbyItem = standbyPopup.itemArray.first(where: { UInt32($0.tag) == config.standbySeconds }) {
+            standbyPopup.select(standbyItem)
+        }
+
+        // 6. Update Sleep popup
+        for item in sleepPopup.itemArray {
+            item.state = (UInt32(item.tag) == config.sleepSeconds) ? .on : .off
+        }
+        if let sleepItem = sleepPopup.itemArray.first(where: { UInt32($0.tag) == config.sleepSeconds }) {
+            sleepPopup.select(sleepItem)
         }
     }
 
@@ -195,6 +415,58 @@ final class SettingsViewController: NSViewController {
         config.setAction(preset.actionConfig, for: control)
         onConfigurationChanged?(config)
         updateUI()
+    }
+
+    @objc private func handleNRChanged(_ sender: NSPopUpButton) {
+        let lvl = UInt8(sender.selectedItem?.tag ?? 0)
+        config.micNoiseReduction = lvl
+        VibeKeyHIDManager.shared.setNoiseReduction(level: lvl)
+        onConfigurationChanged?(config)
+        updateUI()
+    }
+
+    @objc private func handleMicEnableChanged(_ sender: NSPopUpButton) {
+        let enabled = (sender.selectedItem?.tag ?? 1) == 1
+        config.micEnabled = enabled
+        VibeKeyHIDManager.shared.setMicrophoneEnabled(enabled)
+        onConfigurationChanged?(config)
+        updateUI()
+    }
+
+    @objc private func handleLEDChanged(_ sender: NSPopUpButton) {
+        guard let mode = sender.selectedItem?.representedObject as? LEDMode else { return }
+        config.ledMode = mode
+        VibeKeyHIDManager.shared.setLEDMode(mode)
+        onConfigurationChanged?(config)
+        updateUI()
+    }
+
+    @objc private func handleStandbyChanged(_ sender: NSPopUpButton) {
+        let sec = UInt32(sender.selectedItem?.tag ?? 300)
+        config.standbySeconds = sec
+        VibeKeyHIDManager.shared.setStandbyTimeout(seconds: sec)
+        onConfigurationChanged?(config)
+        updateUI()
+    }
+
+    @objc private func handleSleepChanged(_ sender: NSPopUpButton) {
+        let sec = UInt32(sender.selectedItem?.tag ?? 3600)
+        config.sleepSeconds = sec
+        VibeKeyHIDManager.shared.setSleepTimeout(seconds: sec)
+        onConfigurationChanged?(config)
+        updateUI()
+    }
+
+    @objc private func handleResetKeysClicked() {
+        onResetKeysRequested?()
+    }
+
+    @objc private func handleResetHwClicked() {
+        onResetHardwareRequested?()
+    }
+
+    @objc private func handleRebootClicked() {
+        onRebootRequested?()
     }
 
     @objc private func handleRefreshClicked() {
@@ -260,7 +532,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let pop = NSPopover()
         pop.behavior = .transient
         pop.animates = true
-        pop.contentSize = NSSize(width: 390, height: 415)
+        pop.contentSize = NSSize(width: 440, height: 630)
 
         let vc = SettingsViewController(config: config, snapshot: currentSnapshot)
         vc.onConfigurationChanged = { [weak self] newConfig in
@@ -270,6 +542,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         vc.onRefreshRequested = {
             VibeKeyHIDManager.shared.refreshDeviceInfo()
+        }
+        vc.onResetKeysRequested = { [weak self] in
+            guard let self = self else { return }
+            self.config = VibeKeyConfiguration(
+                topButton: .keySequence(keys: ["fn"]),
+                middleButton: .keySequence(keys: ["return"]),
+                bottomButton: .keySequence(keys: ["command", "delete"]),
+                knobLeft: .mouseWheel(direction: .down),
+                knobRight: .mouseWheel(direction: .up),
+                knobPress: .keySequence(keys: ["option", "command", "a"]),
+                micNoiseReduction: self.config.micNoiseReduction,
+                micEnabled: self.config.micEnabled,
+                ledMode: self.config.ledMode,
+                standbySeconds: self.config.standbySeconds,
+                sleepSeconds: self.config.sleepSeconds
+            )
+            self.saveConfiguration()
+            self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
+        }
+        vc.onResetHardwareRequested = { [weak self] in
+            guard let self = self else { return }
+            self.config.micNoiseReduction = 0
+            self.config.micEnabled = true
+            self.config.ledMode = .auto
+            self.config.standbySeconds = 300
+            self.config.sleepSeconds = 3600
+            self.saveConfiguration()
+            VibeKeyHIDManager.shared.resetHardwareDefaults()
+            self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
+        }
+        vc.onRebootRequested = {
+            VibeKeyHIDManager.shared.rebootDevice()
         }
         vc.onQuitRequested = {
             NSApplication.shared.terminate(nil)
@@ -365,22 +669,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let item = NSMenuItem(title: label, action: #selector(handleSetNR(_:)), keyEquivalent: "")
             item.tag = level
+            item.state = (config.micNoiseReduction == UInt8(level)) ? .on : .off
             nrMenu.addItem(item)
         }
         let nrParent = NSMenuItem(title: "麦克风降噪", action: nil, keyEquivalent: "")
         nrParent.submenu = nrMenu
         menu.addItem(nrParent)
 
-        // 5. LED Illumination
+        // 5. Mic Enable
+        let micMenu = NSMenu()
+        let micOnItem = NSMenuItem(title: "开启收音 (默认)", action: #selector(handleSetMicEnableMenu(_:)), keyEquivalent: "")
+        micOnItem.tag = 1
+        micOnItem.state = config.micEnabled ? .on : .off
+        micMenu.addItem(micOnItem)
+
+        let micOffItem = NSMenuItem(title: "静音关闭", action: #selector(handleSetMicEnableMenu(_:)), keyEquivalent: "")
+        micOffItem.tag = 0
+        micOffItem.state = !config.micEnabled ? .on : .off
+        micMenu.addItem(micOffItem)
+
+        let micParent = NSMenuItem(title: "麦克风开关", action: nil, keyEquivalent: "")
+        micParent.submenu = micMenu
+        menu.addItem(micParent)
+
+        // 6. LED Illumination
         let ledMenu = NSMenu()
         for mode in LEDMode.allCases {
-            let item = NSMenuItem(title: mode.rawValue.capitalized, action: #selector(handleSetLED(_:)), keyEquivalent: "")
+            let item = NSMenuItem(title: mode.displayName, action: #selector(handleSetLED(_:)), keyEquivalent: "")
             item.representedObject = mode
+            item.state = (config.ledMode == mode) ? .on : .off
             ledMenu.addItem(item)
         }
         let ledParent = NSMenuItem(title: "指示灯模式", action: nil, keyEquivalent: "")
         ledParent.submenu = ledMenu
         menu.addItem(ledParent)
+
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "出厂硬件复位", action: #selector(handleResetHardwareFromMenu), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "恢复默认按键", action: #selector(handleResetKeysFromMenu), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "重启设备", action: #selector(handleRebootFromMenu), keyEquivalent: ""))
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "退出 VibeKey Elements", action: #selector(handleQuit), keyEquivalent: "q"))
@@ -405,22 +732,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func handleSetNR(_ sender: NSMenuItem) {
         let level = UInt8(sender.tag)
-        if let report = try? VibeKeyPacketBuilder.setNoiseReductionReport(level: level) {
-            try? VibeKeyHIDManager.shared.sendCommand(report)
-        }
+        config.micNoiseReduction = level
+        saveConfiguration()
+        VibeKeyHIDManager.shared.setNoiseReduction(level: level)
+        settingsVC?.updateState(config: config, snapshot: currentSnapshot)
+    }
+
+    @objc private func handleSetMicEnableMenu(_ sender: NSMenuItem) {
+        let enabled = (sender.tag == 1)
+        config.micEnabled = enabled
+        saveConfiguration()
+        VibeKeyHIDManager.shared.setMicrophoneEnabled(enabled)
+        settingsVC?.updateState(config: config, snapshot: currentSnapshot)
     }
 
     @objc private func handleSetLED(_ sender: NSMenuItem) {
         guard let mode = sender.representedObject as? LEDMode else { return }
-        if mode == .auto {
-            if let report = try? VibeKeyPacketBuilder.resetLEDReport() {
-                try? VibeKeyHIDManager.shared.sendCommand(report)
-            }
-        } else {
-            if let report = try? VibeKeyPacketBuilder.setLEDReport(channel: 0, mode: mode, brightness: 100) {
-                try? VibeKeyHIDManager.shared.sendCommand(report)
-            }
-        }
+        config.ledMode = mode
+        saveConfiguration()
+        VibeKeyHIDManager.shared.setLEDMode(mode)
+        settingsVC?.updateState(config: config, snapshot: currentSnapshot)
+    }
+
+    @objc private func handleResetHardwareFromMenu() {
+        config.micNoiseReduction = 0
+        config.micEnabled = true
+        config.ledMode = .auto
+        config.standbySeconds = 300
+        config.sleepSeconds = 3600
+        saveConfiguration()
+        VibeKeyHIDManager.shared.resetHardwareDefaults()
+        settingsVC?.updateState(config: config, snapshot: currentSnapshot)
+    }
+
+    @objc private func handleResetKeysFromMenu() {
+        config = VibeKeyConfiguration(
+            topButton: .keySequence(keys: ["fn"]),
+            middleButton: .keySequence(keys: ["return"]),
+            bottomButton: .keySequence(keys: ["command", "delete"]),
+            knobLeft: .mouseWheel(direction: .down),
+            knobRight: .mouseWheel(direction: .up),
+            knobPress: .keySequence(keys: ["option", "command", "a"]),
+            micNoiseReduction: config.micNoiseReduction,
+            micEnabled: config.micEnabled,
+            ledMode: config.ledMode,
+            standbySeconds: config.standbySeconds,
+            sleepSeconds: config.sleepSeconds
+        )
+        saveConfiguration()
+        settingsVC?.updateState(config: config, snapshot: currentSnapshot)
+    }
+
+    @objc private func handleRebootFromMenu() {
+        VibeKeyHIDManager.shared.rebootDevice()
     }
 
     private func updateStatusItemDisplay(overrideText: String? = nil) {

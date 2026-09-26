@@ -65,7 +65,7 @@ public enum VibeKeyPacketBuilder {
         plaintext[0] = 0x01
         plaintext[1] = 0x01
         plaintext[2] = 0x2C
-        plaintext[3] = 0x04
+        plaintext[3] = 0x02
         plaintext[4] = UInt8(truncatingIfNeeded: seconds)
         plaintext[5] = UInt8(truncatingIfNeeded: seconds >> 8)
         plaintext[6] = UInt8(truncatingIfNeeded: seconds >> 16)
@@ -78,7 +78,7 @@ public enum VibeKeyPacketBuilder {
         plaintext[0] = 0x01
         plaintext[1] = 0x01
         plaintext[2] = 0x42
-        plaintext[3] = 0x04
+        plaintext[3] = 0x02
         plaintext[4] = UInt8(truncatingIfNeeded: seconds)
         plaintext[5] = UInt8(truncatingIfNeeded: seconds >> 8)
         plaintext[6] = UInt8(truncatingIfNeeded: seconds >> 16)
@@ -86,37 +86,38 @@ public enum VibeKeyPacketBuilder {
         return try TEACodec.buildOutputReport(encrypting: plaintext)
     }
 
-    public static func setLEDReport(channel: UInt8, mode: LEDMode, brightness: UInt8) throws -> [UInt8] {
+    public static func setLEDReport(channel: UInt8, mode: LEDMode, brightness: UInt8 = 100) throws -> [UInt8] {
         guard channel <= 3 else {
             throw VibeKeyProtocolError.invalidChannel(channel)
         }
-
         var plaintext = [UInt8](repeating: 0, count: VibeKeyDeviceInfo.packetLength)
         plaintext[0] = 0x01
         plaintext[1] = 0x0B
         plaintext[2] = 0x88
         plaintext[3] = 0x04
 
-        let fieldMask: UInt8
         switch mode {
-        case .solid:
-            fieldMask = 0x40 // always-on brightness
-            plaintext[4] = fieldMask
-            plaintext[5] = channel
-            plaintext[12 + Int(channel) * 5] = brightness
-        case .breathing:
-            fieldMask = 0x30 // breathing level & brightness
-            plaintext[4] = fieldMask
-            plaintext[5] = channel
-            plaintext[10 + Int(channel) * 5] = 0x02 // level
-            plaintext[11 + Int(channel) * 5] = brightness
-        case .off:
-            fieldMask = 0x40
-            plaintext[4] = fieldMask
-            plaintext[5] = channel
-            plaintext[12 + Int(channel) * 5] = 0x00
         case .auto:
             return try resetLEDReport()
+        case .solid:
+            plaintext[4] = 0x01
+            plaintext[5] = 0x00
+            plaintext[6] = 0x01 // Mode 1: solid on
+        case .breathing:
+            plaintext[4] = 0x7C
+            plaintext[5] = channel
+            for i in 0..<4 {
+                let base = 8 + 5 * i
+                plaintext[base] = 0x02
+                plaintext[base + 1] = 0x0A
+                plaintext[base + 2] = 0x02
+                plaintext[base + 3] = 0x02
+                plaintext[base + 4] = 0x02
+            }
+        case .off:
+            plaintext[4] = 0x01
+            plaintext[5] = 0x00
+            plaintext[6] = 0x00 // Mode 0: off
         }
 
         return try TEACodec.buildOutputReport(encrypting: plaintext)
@@ -128,8 +129,9 @@ public enum VibeKeyPacketBuilder {
         plaintext[1] = 0x0B
         plaintext[2] = 0x88
         plaintext[3] = 0x04
-        plaintext[4] = 0x01 // Reset to global mode
-        plaintext[6] = 0x00
+        plaintext[4] = 0x01 // Reset to mode
+        plaintext[5] = 0x00
+        plaintext[6] = 0x02 // Mode 2 is hardware auto (factory default)
         return try TEACodec.buildOutputReport(encrypting: plaintext)
     }
 
@@ -149,10 +151,67 @@ public enum VibeKeyPacketBuilder {
         }
         var plaintext = [UInt8](repeating: 0, count: VibeKeyDeviceInfo.packetLength)
         plaintext[0] = 0x01
-        plaintext[1] = 0x0B
-        plaintext[2] = 0x8A
+        plaintext[1] = 0x01
+        plaintext[2] = 0x90
         plaintext[3] = 0x04
         plaintext[4] = level
+        return try TEACodec.buildOutputReport(encrypting: plaintext)
+    }
+
+    public static func noiseReductionQueryReport() throws -> [UInt8] {
+        var plaintext = [UInt8](repeating: 0, count: VibeKeyDeviceInfo.packetLength)
+        plaintext[0] = 0x01
+        plaintext[1] = 0x01
+        plaintext[2] = 0x90
+        plaintext[3] = 0x01
+        return try TEACodec.buildOutputReport(encrypting: plaintext)
+    }
+
+    public static func setMicrophoneEnableReport(enabled: Bool) throws -> [UInt8] {
+        var plaintext = [UInt8](repeating: 0, count: VibeKeyDeviceInfo.packetLength)
+        plaintext[0] = 0x01
+        plaintext[1] = 0x01
+        plaintext[2] = 0x2A
+        plaintext[3] = 0x00
+        plaintext[4] = enabled ? 0x01 : 0x00
+        return try TEACodec.buildOutputReport(encrypting: plaintext)
+    }
+
+    public static func microphoneEnableQueryReport() throws -> [UInt8] {
+        var plaintext = [UInt8](repeating: 0, count: VibeKeyDeviceInfo.packetLength)
+        plaintext[0] = 0x01
+        plaintext[1] = 0x01
+        plaintext[2] = 0x2A
+        plaintext[3] = 0x01
+        return try TEACodec.buildOutputReport(encrypting: plaintext)
+    }
+
+    public static func rebootReport() throws -> [UInt8] {
+        var plaintext = [UInt8](repeating: 0, count: VibeKeyDeviceInfo.packetLength)
+        plaintext[0] = 0x01
+        plaintext[1] = 0x01
+        plaintext[2] = 0x0C
+        plaintext[3] = 0x00
+        return try TEACodec.buildOutputReport(encrypting: plaintext)
+    }
+
+    public static func setHooksModeReport(enabled: Bool) throws -> [UInt8] {
+        var plaintext = [UInt8](repeating: 0, count: VibeKeyDeviceInfo.packetLength)
+        plaintext[0] = 0x01
+        plaintext[1] = 0x0B
+        plaintext[2] = 0x89
+        plaintext[3] = 0x04
+        plaintext[4] = enabled ? 0x01 : 0x00
+        return try TEACodec.buildOutputReport(encrypting: plaintext)
+    }
+
+    public static func setAudioButtonSystemModeReport(enabled: Bool) throws -> [UInt8] {
+        var plaintext = [UInt8](repeating: 0, count: VibeKeyDeviceInfo.packetLength)
+        plaintext[0] = 0x01
+        plaintext[1] = 0x06
+        plaintext[2] = 0x51
+        plaintext[3] = 0x04
+        plaintext[4] = enabled ? 0x01 : 0x00
         return try TEACodec.buildOutputReport(encrypting: plaintext)
     }
 }
@@ -271,6 +330,14 @@ public enum VibeKeyParser {
                 | (UInt32(plaintext[6]) << 16)
                 | (UInt32(plaintext[7]) << 24)
             return .sleepTime(seconds: seconds)
+
+        case 0x90: // Mic Noise Reduction
+            guard plaintext.count >= 5 else { return nil }
+            return .micNR(level: plaintext[4])
+
+        case 0x2A: // Mic Enable
+            guard plaintext.count >= 5 else { return nil }
+            return .micEnabled(plaintext[4] != 0)
 
         default:
             return nil
