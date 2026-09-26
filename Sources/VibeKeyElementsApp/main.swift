@@ -12,6 +12,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
         setupHIDListeners()
+        
+        // Request input monitoring access if needed
+        if !VibeKeyHIDManager.hasInputMonitoringAccess() {
+            VibeKeyHIDManager.requestInputMonitoringAccess()
+        }
+
         VibeKeyHIDManager.shared.start()
     }
 
@@ -106,7 +112,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(batteryItem)
         }
 
-        // Accessibility Permission Notice
+        // Permissions notices
+        if !VibeKeyHIDManager.hasInputMonitoringAccess() {
+            let hidPermItem = NSMenuItem(title: "⚠️ Input Monitoring Permission Required", action: #selector(handleOpenInputMonitoringSettings), keyEquivalent: "")
+            menu.addItem(hidPermItem)
+        }
+
         if !ActionPerformer.hasAccessibilityPermission() {
             let permItem = NSMenuItem(title: "⚠️ Accessibility Permission Required", action: #selector(handleOpenAccessibilitySettings), keyEquivalent: "")
             menu.addItem(permItem)
@@ -180,6 +191,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func handleOpenAccessibilitySettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func handleOpenInputMonitoringSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
             NSWorkspace.shared.open(url)
         }
     }
