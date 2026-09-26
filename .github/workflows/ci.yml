@@ -30,6 +30,8 @@ jobs:
     name: Build & Package (macOS arm64)
     needs: test
     runs-on: macos-14
+    permissions:
+      contents: write
     env:
       KEYCHAIN_PATH: ""
       HAS_SIGNING_SECRETS: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' }}
