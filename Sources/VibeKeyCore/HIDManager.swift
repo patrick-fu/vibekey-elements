@@ -140,13 +140,13 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         connectedDevice = device
 
         attachInputDevice(device)
-
         self.onDeviceConnected?()
 
         // Handshake: Reset to native baseline first, then activate online mode and heartbeat
         ioQueue.async { [weak self] in
             guard let self = self else { return }
-            // 1. Reset offline
+            
+            // 1. Send offline reset packet
             if let offlineReport = try? VibeKeyPacketBuilder.softwareOnlineReport(false) {
                 _ = try? self.sendReportSync(offlineReport, to: device)
             }
@@ -155,6 +155,11 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             // 2. Enable host-online mode
             if let onlineReport = try? VibeKeyPacketBuilder.softwareOnlineReport(true) {
                 _ = try? self.sendReportSync(onlineReport, to: device)
+            }
+
+            // 3. Send initial heartbeat
+            if let heartbeatReport = try? VibeKeyPacketBuilder.heartbeatReport() {
+                _ = try? self.sendReportSync(heartbeatReport, to: device)
             }
 
             DispatchQueue.main.async {
@@ -193,11 +198,24 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             selfPtr
         )
 
+        // Formally schedule device with run loop to receive asynchronous input reports reliably
+        IOHIDDeviceScheduleWithRunLoop(
+            device,
+            CFRunLoopGetMain(),
+            CFRunLoopMode.commonModes.rawValue
+        )
+
         self.inputReportBuffer = buffer
         self.inputReportCapacity = capacity
     }
 
     private func detachInputDevice(_ device: IOHIDDevice) {
+        IOHIDDeviceUnscheduleFromRunLoop(
+            device,
+            CFRunLoopGetMain(),
+            CFRunLoopMode.commonModes.rawValue
+        )
+
         if let buffer = inputReportBuffer {
             IOHIDDeviceRegisterInputReportCallback(device, buffer, inputReportCapacity, nil, nil)
             buffer.deinitialize(count: inputReportCapacity)
@@ -261,9 +279,19 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
 
     private func startHeartbeat() {
         stopHeartbeat()
-        let timer = Timer(timeInterval: 0.8, repeats: true) { [weak self] _ in
-            guard let self = self, let report = try? VibeKeyPacketBuilder.heartbeatReport() else { return }
-            try? self.sendCommand(report)
+        // 1.0 second periodic heartbeat matching vendor timing (heartbeat + online reaffirmation)
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self, let device = self.connectedDevice else { return }
+            self.ioQueue.async {
+                // Periodically reaffirm online state 3 to prevent firmware watchdog from timing out
+                if let onlineReport = try? VibeKeyPacketBuilder.softwareOnlineReport(true) {
+                    _ = try? self.sendReportSync(onlineReport, to: device)
+                }
+                // Send heartbeat report
+                if let heartbeatReport = try? VibeKeyPacketBuilder.heartbeatReport() {
+                    _ = try? self.sendReportSync(heartbeatReport, to: device)
+                }
+            }
         }
         heartbeatTimer = timer
         RunLoop.main.add(timer, forMode: .common)
