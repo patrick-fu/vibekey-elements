@@ -22,10 +22,11 @@ It provides complete control over hardware lighting, audio noise reduction, stan
 - **Hardware-Native Cryptography**: Implements the 32-round Tiny Encryption Algorithm (TEA) over USB HID (Report ID `0x55`, 64 bytes).
 - **Zero Proprietary Dependencies**: Completely free of closed-source vendor dynamic libraries (`.dylib`), ensuring total transparency, safety, and instant startup.
 
-### 2. Interactive Menu Bar Dashboard & Key Flash
-- **Live Battery & Charging Indicator**: Real-time battery percentage with dynamic charging state (`🎙 75%⚡`) in your macOS menu bar.
-- **Millisecond Key Flash**: Provides instantaneous visual confirmation in the menu bar whenever you press a key or rotate the knob (`[K1]`, `[K2]`, `[K3]`, `[◀]`, `[▶]`, `[●]`), auto-reverting after 350ms.
-- **Quick Controls**: Access microphone noise reduction, LED illumination modes, and custom standby delays directly from the status menu.
+### 2. Native Settings Popover & Status Bar Dashboard
+- **Persistent Settings Panel**: Left-clicking the status bar item opens a native AppKit Popover that **stays open during option adjustments**, eliminating sudden window dismissals.
+- **Explicit Checkmark States**: Clear selection checkmarks for every input mapping, noise reduction level, and LED mode across both the popover and right-click context menu.
+- **Comprehensive Hardware Insights**: Live presentation of firmware version, hardware serial number (SN), exact battery percentage, voltage (mV), and dynamic charging indicator (⚡).
+- **Millisecond Key Flash**: Instant visual feedback in the menu bar (`[K1]`, `[◀]`, `[●]`, etc.) upon physical clicks or knob rotations.
 
 ### 3. AI Coding Agent Hardware Hooks
 - **Physical Agent Status Monitor**: Synchronize your desktop dial with AI coding agents (such as Codex, Claude Code, or local developer pipelines) via command line or API.

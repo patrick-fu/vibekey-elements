@@ -42,6 +42,24 @@ public enum VibeKeyPacketBuilder {
         return try TEACodec.buildOutputReport(encrypting: plaintext)
     }
 
+    public static func firmwareVersionQueryReport() throws -> [UInt8] {
+        var plaintext = [UInt8](repeating: 0, count: VibeKeyDeviceInfo.packetLength)
+        plaintext[0] = 0x01
+        plaintext[1] = 0x04
+        plaintext[2] = 0x04
+        plaintext[3] = 0x01
+        return try TEACodec.buildOutputReport(encrypting: plaintext)
+    }
+
+    public static func serialNumberQueryReport() throws -> [UInt8] {
+        var plaintext = [UInt8](repeating: 0, count: VibeKeyDeviceInfo.packetLength)
+        plaintext[0] = 0x01
+        plaintext[1] = 0x01
+        plaintext[2] = 0x0B
+        plaintext[3] = 0x01
+        return try TEACodec.buildOutputReport(encrypting: plaintext)
+    }
+
     public static func setStandbyTimeoutReport(seconds: UInt32) throws -> [UInt8] {
         var plaintext = [UInt8](repeating: 0, count: VibeKeyDeviceInfo.packetLength)
         plaintext[0] = 0x01
@@ -162,6 +180,60 @@ public enum VibeKeyParser {
         return .key(control: control, phase: isDown ? .down : .up)
     }
 
+    public static func parseDeviceNotice(plaintext: [UInt8]) -> VibeKeyNotice? {
+        guard plaintext.count >= 2,
+              (plaintext[0] & 0x1F) == 0x0B else {
+            return nil
+        }
+
+        switch plaintext[1] {
+        case 0x0D:
+            guard plaintext.count >= 3 else { return nil }
+            return .standby(isStandby: plaintext[2] != 0)
+        case 0x0B:
+            guard plaintext.count >= 3 else { return nil }
+            return .active(isActive: (plaintext[2] & 0x01) != 0)
+        case 0xF0:
+            return .powerOn
+        default:
+            return nil
+        }
+    }
+
+    public static func parseFirmwareVersion(plaintext: [UInt8]) -> String? {
+        // Response format: header(0x01, 0x04, 0x04) + data
+        guard plaintext.count >= 13,
+              (plaintext[0] & 0x1F) == 0x01,
+              plaintext[1] == 0x04,
+              plaintext[2] == 0x04 else {
+            return nil
+        }
+        let major = plaintext[10]
+        let minor = plaintext[11]
+        let patch = plaintext[12]
+        return "\(major).\(minor).\(patch)"
+    }
+
+    public static func parseSerialNumberChunk(plaintext: [UInt8]) -> (seg: Int, text: String)? {
+        // Response format: header(0x01, 0x01, 0x0B) + [len, seg, ascii...]
+        guard plaintext.count >= 6,
+              (plaintext[0] & 0x1F) == 0x01,
+              plaintext[1] == 0x01,
+              plaintext[2] == 0x0B else {
+            return nil
+        }
+        let len = Int(plaintext[4])
+        let seg = Int(plaintext[5])
+        let end = min(6 + len, plaintext.count)
+        guard 6 < end else { return nil }
+        let chunkBytes = Array(plaintext[6..<end])
+        let printable = chunkBytes.allSatisfy { $0 >= 0x20 && $0 < 0x7F }
+        guard printable, let str = String(bytes: chunkBytes, encoding: .ascii) else {
+            return nil
+        }
+        return (seg, str)
+    }
+
     public static func parsePowerResponse(plaintext: [UInt8]) -> VibeKeyPowerResponse? {
         guard plaintext.count >= 5,
               (plaintext[0] & 0x1F) == 0x01,
@@ -176,10 +248,12 @@ public enum VibeKeyParser {
             let voltage = UInt16(plaintext[4]) | (UInt16(plaintext[5]) << 8)
             let percent = UInt16(plaintext[6]) | (UInt16(plaintext[7]) << 8)
             let isCharging = plaintext[10] != 0
+            let isFullyCharged = plaintext.count >= 12 ? ((plaintext[11] & 0x08) != 0) : false
             return .battery(VibeKeyBatteryStatus(
                 percent: min(percent, 100),
                 voltageMillivolts: voltage,
-                isCharging: isCharging
+                isCharging: isCharging,
+                isFullyCharged: isFullyCharged
             ))
 
         case 0x2C: // Standby delay
