@@ -278,4 +278,45 @@ final class VibeKeyCoreTests: XCTestCase {
         let micResp = VibeKeyParser.parsePowerResponse(plaintext: plaintextMic)
         XCTAssertEqual(micResp, .micEnabled(true))
     }
+
+    // MARK: - 9. Power Saving & Host Sleep/Wake Lifecycle
+
+    func testPowerSavingStandbyStateTransition() {
+        let manager = VibeKeyHIDManager()
+        XCTAssertFalse(manager.isPowerSaving)
+        XCTAssertFalse(manager.currentSnapshot.isStandby)
+
+        var powerSavingNotified: Bool?
+        manager.onPowerSavingChanged = { saving in
+            powerSavingNotified = saving
+        }
+
+        manager.enterPowerSaving(isStandby: true)
+        XCTAssertTrue(manager.isPowerSaving)
+        XCTAssertTrue(manager.currentSnapshot.isStandby)
+        XCTAssertEqual(powerSavingNotified, true)
+
+        manager.resumeFromPowerSaving()
+        XCTAssertFalse(manager.isPowerSaving)
+        XCTAssertFalse(manager.currentSnapshot.isStandby)
+        XCTAssertEqual(powerSavingNotified, false)
+    }
+
+    func testHostSleepAndWakeLifecycle() {
+        let manager = VibeKeyHIDManager()
+        manager.hostWillSleep()
+        XCTAssertTrue(manager.isPowerSaving)
+        XCTAssertTrue(manager.currentSnapshot.isStandby)
+
+        manager.resumeFromPowerSaving()
+        XCTAssertFalse(manager.isPowerSaving)
+    }
+
+    func testStandbyTimeoutConfiguration() {
+        let manager = VibeKeyHIDManager()
+        XCTAssertEqual(manager.standbyTimeoutSeconds, 300)
+
+        manager.setStandbyTimeout(seconds: 900)
+        XCTAssertEqual(manager.standbyTimeoutSeconds, 900)
+    }
 }

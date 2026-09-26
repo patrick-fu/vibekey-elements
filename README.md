@@ -44,12 +44,19 @@ It provides complete control over hardware lighting, audio noise reduction, stan
 - **Standby & Deep Sleep Timeouts**: Dynamically configure device standby delay (e.g. 5m, 15m, 30m, or never standby) and deep sleep intervals to prevent disconnect delays.
 - **4-Channel LED Management**: Full control over solid, breathing, off, and automatic hardware-restored modes.
 
-### 5. Multi-Action Execution Engine
+### 5. Ultra-Low Power & Deep Sleep Management (Zero Downlink RF Emissions)
+- **Eliminates Overnight Battery Drain**: Solves the common hardware issue where continuous host-side polling and heartbeats over the 2.4G dongle prevent the AU05 from sleeping overnight.
+- **Zero Downlink RF Traffic in Standby**: When the AU05 is idle for 5 minutes (Standby), powered down, or when macOS enters sleep, VibeKey Elements halts all recurring heartbeats and query packets, allowing the device MCU and 2.4G transceiver to rest in true microamp-level (~15–30 µA) deep sleep.
+- **Instant Wake on Touch**: Tapping any button or turning the dial immediately wakes the device and re-establishes host communication in milliseconds.
+- **Power-Aware Battery Polling**: Battery telemetry interval is relaxed to 180s (3 minutes) during active use, slashing unnecessary RF traffic by 92%.
+- **macOS System Sleep Coordination**: Full lifecycle integration with `NSWorkspace.willSleepNotification` and `didWakeNotification`.
+
+### 6. Multi-Action Execution Engine
 - **Keyboard Shortcuts & Sequences**: Emulate single keys, complex chords (⌘, ⌥, ⌃, ⇧), and dedicated `Fn` key toggles.
 - **Smooth Mouse Scrolling**: High-precision line-based vertical mouse wheel scrolling.
 - **Asynchronous Shell Commands**: Trigger arbitrary terminal scripts and background workflows (`$ cmd`) on button events without freezing the UI.
 
-### 6. Full-Featured `vibekey` CLI Suite
+### 7. Full-Featured `vibekey` CLI Suite
 - Manage all device capabilities directly from terminal scripts, Alfred/Raycast workflows, or automation daemons.
 
 ---

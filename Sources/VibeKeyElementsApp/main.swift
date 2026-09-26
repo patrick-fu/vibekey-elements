@@ -335,12 +335,19 @@ final class SettingsViewController: NSViewController {
             } else {
                 batteryText = " · 电量获取中..."
             }
-            statusLabel.stringValue = "● 优篮子 AU05 (已连接)\(batteryText)"
-            statusLabel.textColor = .systemGreen
-
-            let fw = currentSnapshot.firmwareVersion ?? "读取中"
-            let sn = currentSnapshot.serialNumber ?? "读取中"
-            hardwareInfoLabel.stringValue = "固件: \(fw)  |  SN: \(sn)"
+            if currentSnapshot.isStandby {
+                statusLabel.stringValue = "● 优篮子 AU05 (待机省电中)\(batteryText)"
+                statusLabel.textColor = .systemOrange
+                let fw = currentSnapshot.firmwareVersion ?? "读取中"
+                let sn = currentSnapshot.serialNumber ?? "读取中"
+                hardwareInfoLabel.stringValue = "固件: \(fw)  |  SN: \(sn) (按任意键唤醒)"
+            } else {
+                statusLabel.stringValue = "● 优篮子 AU05 (已连接)\(batteryText)"
+                statusLabel.textColor = .systemGreen
+                let fw = currentSnapshot.firmwareVersion ?? "读取中"
+                let sn = currentSnapshot.serialNumber ?? "读取中"
+                hardwareInfoLabel.stringValue = "固件: \(fw)  |  SN: \(sn)"
+            }
         } else {
             statusLabel.stringValue = "○ 设备未连接 (Offline)"
             statusLabel.textColor = .systemGray
@@ -483,6 +490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var popover: NSPopover?
     private var settingsVC: SettingsViewController?
     private var flashTimer: Timer?
+    private var workspaceObservers: [NSObjectProtocol] = []
 
     private var config = VibeKeyConfiguration()
     private var currentSnapshot = VibeKeyDeviceInfoSnapshot()
@@ -492,6 +500,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         setupPopover()
         setupHIDListeners()
+        setupWorkspaceObservers()
 
         if !VibeKeyHIDManager.hasInputMonitoringAccess() {
             VibeKeyHIDManager.requestInputMonitoringAccess()
@@ -501,7 +510,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        workspaceObservers.removeAll()
         VibeKeyHIDManager.shared.stop()
+    }
+
+    private func setupWorkspaceObservers() {
+        let center = NSWorkspace.shared.notificationCenter
+        workspaceObservers.append(center.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            VibeKeyHIDManager.shared.hostWillSleep()
+        })
+
+        workspaceObservers.append(center.addObserver(
+            forName: NSWorkspace.willPowerOffNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            VibeKeyHIDManager.shared.hostWillSleep()
+        })
+
+        workspaceObservers.append(center.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            VibeKeyHIDManager.shared.hostDidWake()
+        })
     }
 
     private func loadConfiguration() {
@@ -509,6 +547,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let data = defaults.data(forKey: "VibeKeyElementsConfig"),
            let saved = try? JSONDecoder().decode(VibeKeyConfiguration.self, from: data) {
             config = saved
+            VibeKeyHIDManager.shared.standbyTimeoutSeconds = TimeInterval(saved.standbySeconds)
         }
     }
 
@@ -595,7 +634,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(sender)
         } else {
-            VibeKeyHIDManager.shared.refreshDeviceInfo()
+            if !currentSnapshot.isStandby {
+                VibeKeyHIDManager.shared.refreshDeviceInfo()
+            }
             settingsVC?.updateState(config: config, snapshot: currentSnapshot)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApplication.shared.activate(ignoringOtherApps: true)
@@ -791,7 +832,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem?.button else { return }
 
         // 1. Native SF Symbol template icon with standard spacing
-        let iconName = currentSnapshot.isConnected ? "dial.medium.fill" : "dial.medium"
+        let iconName: String
+        if !currentSnapshot.isConnected {
+            iconName = "dial.medium"
+        } else if currentSnapshot.isStandby {
+            iconName = "dial.medium"
+        } else {
+            iconName = "dial.medium.fill"
+        }
         if let icon = NSImage(systemSymbolName: iconName, accessibilityDescription: "VibeKey") {
             icon.isTemplate = true
             button.image = icon
@@ -820,7 +868,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let battery = currentSnapshot.battery {
             let bolt = battery.isCharging ? " ⚡" : ""
-            let text = " \(battery.percent)%\(bolt)"
+            let standbyMarker = currentSnapshot.isStandby ? " 💤" : ""
+            let text = " \(battery.percent)%\(bolt)\(standbyMarker)"
             let attr = NSAttributedString(
                 string: text,
                 attributes: [
@@ -828,11 +877,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ]
             )
             button.attributedTitle = attr
-            let chargeState = battery.isCharging ? "充电中" : "电池供电"
+            let chargeState = battery.isCharging ? "充电中" : (currentSnapshot.isStandby ? "闲置待机省电中" : "电池供电")
             button.toolTip = "优篮子 AU05 · 电量 \(battery.percent)% (\(chargeState), \(battery.voltageMillivolts)mV)"
         } else {
             button.attributedTitle = NSAttributedString(string: "")
-            button.toolTip = "优篮子 AU05 (已连接)"
+            button.toolTip = currentSnapshot.isStandby ? "优篮子 AU05 (待机省电中)" : "优篮子 AU05 (已连接)"
         }
     }
 
@@ -856,6 +905,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         VibeKeyHIDManager.shared.onDeviceDisconnected = { [weak self] in
             guard let self = self else { return }
             self.currentSnapshot = VibeKeyDeviceInfoSnapshot(isConnected: false)
+            self.updateStatusItemDisplay()
+            self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
+        }
+
+        VibeKeyHIDManager.shared.onPowerSavingChanged = { [weak self] isPowerSaving in
+            guard let self = self else { return }
+            self.currentSnapshot.isStandby = isPowerSaving
             self.updateStatusItemDisplay()
             self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
         }

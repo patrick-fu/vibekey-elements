@@ -247,4 +247,39 @@ final class VibeKeyAblationTests: XCTestCase {
         let unknownCmd: [UInt8] = [0x81, 0x01, 0xFE, 0x11, 0x00]
         XCTAssertNil(VibeKeyParser.parsePowerResponse(plaintext: unknownCmd))
     }
+
+    // MARK: - Ablation 6: Power Saving & Standby Idempotence
+
+    func testAblationPowerSavingDuplicateInvocations() {
+        let manager = VibeKeyHIDManager()
+        var transitions: [Bool] = []
+        manager.onPowerSavingChanged = { transitions.append($0) }
+
+        // Calling enterPowerSaving multiple times must be idempotent
+        manager.enterPowerSaving(isStandby: true)
+        XCTAssertTrue(manager.isPowerSaving)
+        XCTAssertTrue(manager.currentSnapshot.isStandby)
+        manager.enterPowerSaving(isStandby: true)
+        XCTAssertTrue(manager.isPowerSaving)
+        XCTAssertEqual(transitions, [true])
+
+        // Calling resumeFromPowerSaving multiple times must be idempotent
+        manager.resumeFromPowerSaving()
+        XCTAssertFalse(manager.isPowerSaving)
+        XCTAssertFalse(manager.currentSnapshot.isStandby)
+        manager.resumeFromPowerSaving()
+        XCTAssertFalse(manager.isPowerSaving)
+        XCTAssertEqual(transitions, [true, false])
+    }
+
+    func testAblationStandbyTimeoutBoundaryGuards() {
+        let manager = VibeKeyHIDManager()
+        // 0 seconds represents "Never Standby" and sets timeout to 0 (disabling idle standby)
+        manager.setStandbyTimeout(seconds: 0)
+        XCTAssertEqual(manager.standbyTimeoutSeconds, 0)
+
+        // Normal value should update
+        manager.setStandbyTimeout(seconds: 1800)
+        XCTAssertEqual(manager.standbyTimeoutSeconds, 1800)
+    }
 }

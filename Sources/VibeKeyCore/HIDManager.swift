@@ -22,17 +22,26 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
 
     private var hidManager: IOHIDManager?
     private var connectedDevice: IOHIDDevice?
+    private var wakeDevice: IOHIDDevice?
     private var heartbeatTimer: Timer?
     private var pollTimer: Timer?
     private var isStarted = false
+
+    // Power saving & inactivity state
+    public private(set) var isPowerSaving = false
+    public private(set) var lastActivityTime = Date()
+    public var standbyTimeoutSeconds: TimeInterval = 300 // 5 minutes factory default
 
     // State guards & counters
     private var heartbeatInFlight = false
     private var onlineGeneration: UInt64 = 0
 
-    // Persistent heap buffer for IOHID input report callback
+    // Persistent heap buffers for IOHID input report callbacks
     private var inputReportBuffer: UnsafeMutablePointer<UInt8>?
     private var inputReportCapacity = 64
+
+    private var wakeReportBuffer: UnsafeMutablePointer<UInt8>?
+    private var wakeReportCapacity = 64
 
     // Serial number chunks collector
     private var snChunks: [Int: String] = [:]
@@ -45,6 +54,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
     public var onBatteryUpdated: ((VibeKeyBatteryStatus) -> Void)?
     public var onDeviceInfoUpdated: ((VibeKeyDeviceInfoSnapshot) -> Void)?
     public var onEventReceived: ((InputControl, ButtonPhase) -> Void)?
+    public var onPowerSavingChanged: ((Bool) -> Void)?
 
     private let ioQueue = DispatchQueue(label: "com.patrickfu.vibekey.hid.io", qos: .userInitiated)
 
@@ -90,6 +100,11 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             connectedDevice = nil
         }
 
+        if let device = wakeDevice {
+            detachWakeDevice(device)
+            wakeDevice = nil
+        }
+
         if let manager = hidManager {
             IOHIDManagerRegisterDeviceMatchingCallback(manager, nil, nil)
             IOHIDManagerRegisterDeviceRemovalCallback(manager, nil, nil)
@@ -102,21 +117,114 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         }
 
         hidManager = nil
+        isPowerSaving = false
         currentSnapshot = VibeKeyDeviceInfoSnapshot()
+    }
+
+    public func enterPowerSaving(isStandby: Bool = true) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.enterPowerSaving(isStandby: isStandby) }
+            return
+        }
+        guard !isPowerSaving else { return }
+        isPowerSaving = true
+        currentSnapshot.isStandby = isStandby
+        stopTimers()
+
+        if let device = connectedDevice {
+            ioQueue.async { [weak self] in
+                guard let self = self else { return }
+                // Let MCU return to low-power native standby by releasing online mode
+                if let offlineReport = try? VibeKeyPacketBuilder.softwareOnlineReport(false) {
+                    _ = try? self.sendReportSync(offlineReport, to: device)
+                }
+            }
+        }
+
+        onPowerSavingChanged?(true)
+        onDeviceInfoUpdated?(currentSnapshot)
+    }
+
+    public func resumeFromPowerSaving() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.resumeFromPowerSaving() }
+            return
+        }
+        guard isPowerSaving else { return }
+        isPowerSaving = false
+        currentSnapshot.isStandby = false
+        lastActivityTime = Date()
+
+        if let device = connectedDevice {
+            onlineGeneration &+= 1
+            let generation = self.onlineGeneration
+            ioQueue.async { [weak self] in
+                guard let self = self, self.onlineGeneration == generation else { return }
+                if let onlineReport = try? VibeKeyPacketBuilder.softwareOnlineReport(true) {
+                    _ = try? self.sendReportSync(onlineReport, to: device)
+                }
+                if let heartbeatReport = try? VibeKeyPacketBuilder.heartbeatReport() {
+                    _ = try? self.sendReportSync(heartbeatReport, to: device)
+                }
+                DispatchQueue.main.async {
+                    guard self.onlineGeneration == generation, !self.isPowerSaving else { return }
+                    self.startHeartbeat()
+                    self.startPeriodicPolling()
+                    self.refreshDeviceInfo()
+                }
+            }
+        }
+
+        onPowerSavingChanged?(false)
+        onDeviceInfoUpdated?(currentSnapshot)
+    }
+
+    public func hostWillSleep() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.hostWillSleep() }
+            return
+        }
+        enterPowerSaving(isStandby: true)
+    }
+
+    public func hostDidWake() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.hostDidWake() }
+            return
+        }
+        // If device is in power saving, remain in standby to prevent macOS DarkWake
+        // and background maintenance from emitting RF packets and waking VibeKey overnight.
+        // Device will immediately resume when the user presses any key.
+        if !isPowerSaving {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                guard let self = self, self.connectedDevice != nil, !self.isPowerSaving else { return }
+                self.refreshDeviceInfo()
+            }
+        }
     }
 
     private func setupHIDManager() {
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
         self.hidManager = manager
 
-        let matching: [String: Any] = [
+        let customMatching: [String: Any] = [
             kIOHIDVendorIDKey as String: VibeKeyDeviceInfo.vendorID,
             kIOHIDProductIDKey as String: VibeKeyDeviceInfo.productID,
             kIOHIDPrimaryUsagePageKey as String: VibeKeyDeviceInfo.usagePage,
             kIOHIDPrimaryUsageKey as String: VibeKeyDeviceInfo.usage
         ]
 
-        IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
+        let wakeMatching: [String: Any] = [
+            kIOHIDVendorIDKey as String: VibeKeyDeviceInfo.vendorID,
+            kIOHIDProductIDKey as String: VibeKeyDeviceInfo.productID,
+            kIOHIDPrimaryUsagePageKey as String: 0x000C,
+            kIOHIDPrimaryUsageKey as String: 1
+        ]
+
+        IOHIDManagerSetDeviceMatchingMultiple(
+            manager,
+            [customMatching as CFDictionary, wakeMatching as CFDictionary] as CFArray
+        )
 
         let matchingCallback: IOHIDDeviceCallback = { context, result, sender, device in
             guard result == kIOReturnSuccess, let context = context else { return }
@@ -145,14 +253,41 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             return
         }
 
-        // Check if device is already plugged in
-        if let existingDevices = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>,
-           let device = existingDevices.first {
-            handleDeviceMatched(device)
+        // Check if devices are already plugged in
+        if let existingDevices = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> {
+            for device in existingDevices {
+                handleDeviceMatched(device)
+            }
         }
     }
 
+    private func primaryUsagePage(for device: IOHIDDevice) -> Int {
+        guard let value = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsagePageKey as CFString),
+              CFGetTypeID(value) == CFNumberGetTypeID() else {
+            return -1
+        }
+        var usagePage: Int32 = -1
+        CFNumberGetValue(unsafeBitCast(value, to: CFNumber.self), .sInt32Type, &usagePage)
+        return Int(usagePage)
+    }
+
+    private func maxInputReportSize(for device: IOHIDDevice) -> Int {
+        guard let value = IOHIDDeviceGetProperty(device, kIOHIDMaxInputReportSizeKey as CFString),
+              CFGetTypeID(value) == CFNumberGetTypeID() else {
+            return 64
+        }
+        var reportedSize: Int32 = 0
+        CFNumberGetValue(unsafeBitCast(value, to: CFNumber.self), .sInt32Type, &reportedSize)
+        return max(Int(reportedSize), 64)
+    }
+
     private func handleDeviceMatched(_ device: IOHIDDevice) {
+        let usagePage = primaryUsagePage(for: device)
+        if usagePage == 0x000C {
+            attachWakeDevice(device)
+            return
+        }
+
         guard connectedDevice == nil else { return }
         connectedDevice = device
 
@@ -160,6 +295,8 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         currentSnapshot.isConnected = true
         snChunks.removeAll()
         onlineGeneration &+= 1
+        isPowerSaving = false
+        lastActivityTime = Date()
 
         self.onDeviceConnected?()
         self.onDeviceInfoUpdated?(self.currentSnapshot)
@@ -186,7 +323,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             }
 
             DispatchQueue.main.async {
-                guard self.onlineGeneration == generation else { return }
+                guard self.onlineGeneration == generation, !self.isPowerSaving else { return }
                 self.startHeartbeat()
                 self.startPeriodicPolling()
                 self.refreshDeviceInfo()
@@ -195,11 +332,17 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
     }
 
     private func handleDeviceRemoved(_ device: IOHIDDevice) {
+        if let currentWake = wakeDevice, currentWake === device {
+            detachWakeDevice(device)
+            return
+        }
+
         guard let current = connectedDevice, current === device else { return }
         stopTimers()
         detachInputDevice(device)
         connectedDevice = nil
         onlineGeneration &+= 1
+        isPowerSaving = false
         currentSnapshot = VibeKeyDeviceInfoSnapshot(isConnected: false)
         onDeviceDisconnected?()
         onDeviceInfoUpdated?(currentSnapshot)
@@ -251,6 +394,65 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         }
     }
 
+    private func attachWakeDevice(_ device: IOHIDDevice) {
+        guard wakeDevice == nil else { return }
+        let capacity = maxInputReportSize(for: device)
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)
+        buffer.initialize(repeating: 0, count: capacity)
+
+        let reportCallback: IOHIDReportCallback = { context, result, sender, type, reportID, report, length in
+            guard result == kIOReturnSuccess, let context = context, length > 0 else { return }
+            let instance = Unmanaged<VibeKeyHIDManager>.fromOpaque(context).takeUnretainedValue()
+            let bytes = [UInt8](UnsafeBufferPointer(start: report, count: length))
+            instance.handleWakeReport(reportID: reportID, bytes: bytes)
+        }
+
+        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+        IOHIDDeviceRegisterInputReportCallback(
+            device,
+            buffer,
+            capacity,
+            reportCallback,
+            selfPtr
+        )
+
+        IOHIDDeviceScheduleWithRunLoop(
+            device,
+            CFRunLoopGetMain(),
+            CFRunLoopMode.commonModes.rawValue
+        )
+
+        self.wakeDevice = device
+        self.wakeReportBuffer = buffer
+        self.wakeReportCapacity = capacity
+    }
+
+    private func detachWakeDevice(_ device: IOHIDDevice) {
+        guard let current = wakeDevice, current === device else { return }
+        IOHIDDeviceUnscheduleFromRunLoop(
+            device,
+            CFRunLoopGetMain(),
+            CFRunLoopMode.commonModes.rawValue
+        )
+
+        if let buffer = wakeReportBuffer {
+            IOHIDDeviceRegisterInputReportCallback(device, buffer, wakeReportCapacity, nil, nil)
+            buffer.deinitialize(count: wakeReportCapacity)
+            buffer.deallocate()
+            wakeReportBuffer = nil
+        }
+        wakeDevice = nil
+    }
+
+    private func handleWakeReport(reportID: UInt32, bytes: [UInt8]) {
+        DispatchQueue.main.async {
+            self.lastActivityTime = Date()
+            if self.isPowerSaving {
+                self.resumeFromPowerSaving()
+            }
+        }
+    }
+
     private func handleInputReport(reportID: UInt32, bytes: [UInt8]) {
         let hasExplicitID = (reportID == UInt32(VibeKeyDeviceInfo.reportID))
         guard let plaintext = try? TEACodec.decryptInputReport(bytes, hasReportID: hasExplicitID) else { return }
@@ -259,12 +461,11 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         if let event = VibeKeyParser.parseDeviceEvent(plaintext: plaintext) {
             if case let .key(control, phase) = event {
                 DispatchQueue.main.async {
-                    self.onEventReceived?(control, phase)
-                    // If device was in standby, mark active
-                    if self.currentSnapshot.isStandby {
-                        self.currentSnapshot.isStandby = false
-                        self.onDeviceInfoUpdated?(self.currentSnapshot)
+                    self.lastActivityTime = Date()
+                    if self.isPowerSaving {
+                        self.resumeFromPowerSaving()
                     }
+                    self.onEventReceived?(control, phase)
                 }
             }
             return
@@ -297,14 +498,24 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             DispatchQueue.main.async {
                 switch notice {
                 case let .standby(isStandby):
-                    self.currentSnapshot.isStandby = isStandby
+                    if isStandby {
+                        self.enterPowerSaving(isStandby: true)
+                    } else {
+                        self.lastActivityTime = Date()
+                        self.resumeFromPowerSaving()
+                    }
                 case let .active(isActive):
-                    self.currentSnapshot.isStandby = !isActive
+                    if isActive {
+                        self.lastActivityTime = Date()
+                        self.resumeFromPowerSaving()
+                    } else {
+                        self.enterPowerSaving(isStandby: true)
+                    }
                 case .powerOn:
-                    self.currentSnapshot.isStandby = false
+                    self.lastActivityTime = Date()
+                    self.resumeFromPowerSaving()
                     self.refreshDeviceInfo()
                 }
-                self.onDeviceInfoUpdated?(self.currentSnapshot)
             }
             return
         }
@@ -318,6 +529,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
                     self.onBatteryUpdated?(status)
                 case let .standbyTime(sec):
                     self.currentSnapshot.standbyTimeSeconds = sec
+                    self.standbyTimeoutSeconds = TimeInterval(sec)
                 case let .sleepTime(sec):
                     self.currentSnapshot.sleepTimeSeconds = sec
                 case let .micNR(level):
@@ -334,6 +546,9 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
     public func sendCommand(_ reportBytes: [UInt8]) throws {
         guard let device = connectedDevice else {
             throw VibeKeyHIDError.deviceNotConnected
+        }
+        if isPowerSaving {
+            resumeFromPowerSaving()
         }
         try ioQueue.sync {
             try self.sendReportSync(reportBytes, to: device)
@@ -355,9 +570,9 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
     }
 
     public func refreshDeviceInfo() {
-        guard let device = connectedDevice else { return }
+        guard !isPowerSaving, connectedDevice != nil else { return }
         ioQueue.async { [weak self] in
-            guard let self = self else { return }
+            guard let self = self, !self.isPowerSaving, let device = self.connectedDevice else { return }
             // 1. Query Battery
             if let rep = try? VibeKeyPacketBuilder.powerQueryReport(commandID: 0x02) {
                 _ = try? self.sendReportSync(rep, to: device)
@@ -418,6 +633,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
     }
 
     public func setStandbyTimeout(seconds: UInt32) {
+        self.standbyTimeoutSeconds = TimeInterval(seconds)
         guard let rep = try? VibeKeyPacketBuilder.setStandbyTimeoutReport(seconds: seconds) else { return }
         try? sendCommand(rep)
     }
@@ -497,10 +713,12 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
     }
 
     public func queryBattery() {
-        guard let device = connectedDevice,
+        guard !isPowerSaving,
+              connectedDevice != nil,
               let report = try? VibeKeyPacketBuilder.powerQueryReport(commandID: 0x02) else { return }
         ioQueue.async { [weak self] in
-            _ = try? self?.sendReportSync(report, to: device)
+            guard let self = self, !self.isPowerSaving, let device = self.connectedDevice else { return }
+            _ = try? self.sendReportSync(report, to: device)
         }
     }
 
@@ -517,6 +735,14 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
                   let device = self.connectedDevice,
                   self.onlineGeneration == generation,
                   !self.heartbeatInFlight else { return }
+
+            // Inactivity Check: if device has been idle past standbyTimeoutSeconds (0 means disabled), enter power saving
+            if self.standbyTimeoutSeconds > 0 && Date().timeIntervalSince(self.lastActivityTime) >= self.standbyTimeoutSeconds {
+                self.enterPowerSaving(isStandby: true)
+                return
+            }
+
+            guard !self.isPowerSaving else { return }
 
             self.heartbeatInFlight = true
             self.ioQueue.async { [weak self] in
@@ -539,9 +765,9 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         pollTimer?.invalidate()
         let generation = self.onlineGeneration
 
-        // Periodically refresh battery every 15 seconds to ensure charging / percentage is live
-        let timer = Timer(timeInterval: 15.0, repeats: true) { [weak self] _ in
-            guard let self = self, self.onlineGeneration == generation else { return }
+        // Periodically refresh battery every 180 seconds (3 minutes) to avoid battery drain over RF
+        let timer = Timer(timeInterval: 180.0, repeats: true) { [weak self] _ in
+            guard let self = self, self.onlineGeneration == generation, !self.isPowerSaving else { return }
             self.queryBattery()
         }
         pollTimer = timer
