@@ -16,8 +16,6 @@ final class SettingsViewController: NSViewController {
     private let batteryLabel = NSTextField(labelWithString: "")
 
     private var popupButtons: [InputControl: NSPopUpButton] = [:]
-    private var nrPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private var ledPopup = NSPopUpButton(frame: .zero, pullsDown: false)
 
     init(config: VibeKeyConfiguration, snapshot: VibeKeyDeviceInfoSnapshot) {
         self.config = config
@@ -31,26 +29,26 @@ final class SettingsViewController: NSViewController {
     }
 
     override func loadView() {
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 380))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 410))
 
         titleLabel.font = .systemFont(ofSize: 16, weight: .bold)
 
-        let subtitleLabel = NSTextField(labelWithString: "轻量原生按键控制器 · 优篮子 AU05")
+        let subtitleLabel = NSTextField(labelWithString: "优篮子 Ulanzi AU05 · 轻量原生控制器")
         subtitleLabel.font = .systemFont(ofSize: 11)
         subtitleLabel.textColor = .secondaryLabelColor
 
         statusLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        hardwareInfoLabel.font = .systemFont(ofSize: 11)
-        hardwareInfoLabel.textColor = .secondaryLabelColor
         batteryLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        hardwareInfoLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        hardwareInfoLabel.textColor = .secondaryLabelColor
 
         let infoBox = NSBox()
-        infoBox.title = "硬件信息"
-        infoBox.titleFont = .systemFont(ofSize: 11)
-        let infoStack = NSStackView(views: [statusLabel, hardwareInfoLabel, batteryLabel])
+        infoBox.title = "硬件状态"
+        infoBox.titleFont = .systemFont(ofSize: 11, weight: .medium)
+        let infoStack = NSStackView(views: [statusLabel, batteryLabel, hardwareInfoLabel])
         infoStack.orientation = .vertical
         infoStack.alignment = .leading
-        infoStack.spacing = 3
+        infoStack.spacing = 5
         infoBox.contentView = infoStack
 
         let mappingGrid = makeMappingGrid()
@@ -76,7 +74,7 @@ final class SettingsViewController: NSViewController {
         ])
         mainStack.orientation = .vertical
         mainStack.alignment = .leading
-        mainStack.spacing = 10
+        mainStack.spacing = 12
         mainStack.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(mainStack)
 
@@ -107,7 +105,7 @@ final class SettingsViewController: NSViewController {
         var rows: [[NSView]] = []
         for control in controls {
             let label = NSTextField(labelWithString: control.displayName)
-            label.font = .systemFont(ofSize: 12)
+            label.font = .systemFont(ofSize: 12, weight: .medium)
 
             let popup = NSPopUpButton(frame: .zero, pullsDown: false)
             popup.font = .systemFont(ofSize: 12)
@@ -121,13 +119,14 @@ final class SettingsViewController: NSViewController {
                 popup.menu?.addItem(item)
             }
 
+            popup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
             popupButtons[control] = popup
             rows.append([label, popup])
         }
 
         let grid = NSGridView(views: rows)
-        grid.rowSpacing = 6
-        grid.columnSpacing = 12
+        grid.rowSpacing = 7
+        grid.columnSpacing = 14
         grid.column(at: 0).xPlacement = .leading
         grid.column(at: 1).xPlacement = .fill
         return grid
@@ -143,30 +142,30 @@ final class SettingsViewController: NSViewController {
 
     private func updateUI() {
         if currentSnapshot.isConnected {
-            statusLabel.stringValue = "● 优篮子 AU05 (已连接)"
+            statusLabel.stringValue = "● 设备已连接 (优篮子 AU05)"
             statusLabel.textColor = .systemGreen
+
+            if let b = currentSnapshot.battery {
+                let bolt = b.isCharging ? "⚡ (充电中)" : "(电池供电)"
+                batteryLabel.stringValue = "电量: \(b.percent)% \(bolt)  ·  电压: \(b.voltageMillivolts) mV"
+                batteryLabel.textColor = b.isCharging ? .systemOrange : .labelColor
+            } else {
+                batteryLabel.stringValue = "电量: 获取中..."
+                batteryLabel.textColor = .secondaryLabelColor
+            }
 
             let fw = currentSnapshot.firmwareVersion ?? "读取中..."
             let sn = currentSnapshot.serialNumber ?? "读取中..."
-            hardwareInfoLabel.stringValue = "固件版本: \(fw)  |  序列号: \(sn)"
-
-            if let b = currentSnapshot.battery {
-                let bolt = b.isCharging ? "⚡ (充电中)" : "(使用电池)"
-                batteryLabel.stringValue = "电量: \(b.percent)% \(bolt)  |  电压: \(b.voltageMillivolts)mV"
-                batteryLabel.textColor = b.isCharging ? .systemOrange : .labelColor
-            } else {
-                batteryLabel.stringValue = "电量: 正在获取..."
-                batteryLabel.textColor = .secondaryLabelColor
-            }
+            hardwareInfoLabel.stringValue = "固件: \(fw)  |  SN: \(sn)"
         } else {
             statusLabel.stringValue = "○ 设备未连接 (Offline)"
             statusLabel.textColor = .systemGray
-            hardwareInfoLabel.stringValue = "请使用 2.4G 接收器或 USB 连接设备"
             batteryLabel.stringValue = "电量: —"
             batteryLabel.textColor = .secondaryLabelColor
+            hardwareInfoLabel.stringValue = "请插入 2.4G 接收器或通过 USB 连接"
         }
 
-        // Update popup selections
+        // Update popup selections & checkmark states
         for (control, popup) in popupButtons {
             let action = config.action(for: control)
             let matchingPreset = PresetAction.allCases.first(where: { $0.actionConfig == action }) ?? .none
@@ -278,12 +277,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func handleStatusItemClicked(_ sender: NSStatusBarButton) {
         let currentEvent = NSApp.currentEvent
         if currentEvent?.type == .rightMouseUp {
-            // Right-click: display contextual menu with clear checkmarks
             showContextMenu()
             return
         }
 
-        // Left-click: toggle popover (never closes upon item selection)
         guard let button = statusItem?.button, let popover = popover else { return }
         if popover.isShown {
             popover.performClose(sender)
@@ -423,21 +420,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateStatusItemDisplay(overrideText: String? = nil) {
         guard let button = statusItem?.button else { return }
 
+        // 1. Native SF Symbol template icon with standard spacing
+        let iconName = currentSnapshot.isConnected ? "dial.medium.fill" : "dial.medium"
+        if let icon = NSImage(systemSymbolName: iconName, accessibilityDescription: "VibeKey") {
+            icon.isTemplate = true
+            button.image = icon
+            button.imagePosition = .imageLeft
+        }
+
+        // 2. Clear key flash feedback
         if let override = overrideText {
-            button.title = override
+            let attr = NSAttributedString(
+                string: " \(override)",
+                attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: 12.0, weight: .bold),
+                    .foregroundColor: NSColor.controlAccentColor
+                ]
+            )
+            button.attributedTitle = attr
             return
         }
 
+        // 3. Clean status bar typography (clean spacing, monospaced digits, no squeezed emojis)
         if !currentSnapshot.isConnected {
-            button.title = "🎙 (Offline)"
+            button.attributedTitle = NSAttributedString(string: "")
+            button.toolTip = "优篮子 AU05 (未连接)"
             return
         }
 
         if let battery = currentSnapshot.battery {
-            let bolt = battery.isCharging ? "⚡" : ""
-            button.title = "🎙 \(battery.percent)%\(bolt)"
+            let bolt = battery.isCharging ? " ⚡" : ""
+            let text = " \(battery.percent)%\(bolt)"
+            let attr = NSAttributedString(
+                string: text,
+                attributes: [
+                    .font: NSFont.monospacedDigitSystemFont(ofSize: 12.0, weight: .medium)
+                ]
+            )
+            button.attributedTitle = attr
+            let chargeState = battery.isCharging ? "充电中" : "电池供电"
+            button.toolTip = "优篮子 AU05 · 电量 \(battery.percent)% (\(chargeState), \(battery.voltageMillivolts)mV)"
         } else {
-            button.title = "🎙 VibeKey"
+            button.attributedTitle = NSAttributedString(string: "")
+            button.toolTip = "优篮子 AU05 (已连接)"
         }
     }
 
