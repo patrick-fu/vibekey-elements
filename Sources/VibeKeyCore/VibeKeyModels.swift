@@ -18,6 +18,17 @@ public enum InputControl: String, Codable, CaseIterable, Sendable {
         case .knobRight: return "▶"
         }
     }
+
+    public var displayName: String {
+        switch self {
+        case .topButton: return "上键 (K1)"
+        case .middleButton: return "中键 (K2)"
+        case .bottomButton: return "下键 (K3)"
+        case .knobPress: return "旋钮按下"
+        case .knobLeft: return "旋钮左旋"
+        case .knobRight: return "旋钮右旋"
+        }
+    }
 }
 
 public enum ButtonPhase: String, Codable, Sendable {
@@ -28,17 +39,59 @@ public enum ButtonPhase: String, Codable, Sendable {
 public enum DeviceEvent: Equatable, Sendable {
     case key(control: InputControl, phase: ButtonPhase)
     case power(VibeKeyPowerResponse)
+    case notice(VibeKeyNotice)
+}
+
+public enum VibeKeyNotice: Equatable, Sendable {
+    case standby(isStandby: Bool)
+    case active(isActive: Bool)
+    case powerOn
 }
 
 public struct VibeKeyBatteryStatus: Equatable, Codable, Sendable {
     public let percent: UInt16
     public let voltageMillivolts: UInt16
     public let isCharging: Bool
+    public let isFullyCharged: Bool
 
-    public init(percent: UInt16, voltageMillivolts: UInt16, isCharging: Bool) {
+    public init(
+        percent: UInt16,
+        voltageMillivolts: UInt16,
+        isCharging: Bool,
+        isFullyCharged: Bool = false
+    ) {
         self.percent = percent
         self.voltageMillivolts = voltageMillivolts
         self.isCharging = isCharging
+        self.isFullyCharged = isFullyCharged
+    }
+}
+
+public struct VibeKeyDeviceInfoSnapshot: Equatable, Sendable {
+    public var isConnected: Bool
+    public var firmwareVersion: String?
+    public var serialNumber: String?
+    public var battery: VibeKeyBatteryStatus?
+    public var standbyTimeSeconds: UInt32?
+    public var sleepTimeSeconds: UInt32?
+    public var isStandby: Bool
+
+    public init(
+        isConnected: Bool = false,
+        firmwareVersion: String? = nil,
+        serialNumber: String? = nil,
+        battery: VibeKeyBatteryStatus? = nil,
+        standbyTimeSeconds: UInt32? = nil,
+        sleepTimeSeconds: UInt32? = nil,
+        isStandby: Bool = false
+    ) {
+        self.isConnected = isConnected
+        self.firmwareVersion = firmwareVersion
+        self.serialNumber = serialNumber
+        self.battery = battery
+        self.standbyTimeSeconds = standbyTimeSeconds
+        self.sleepTimeSeconds = sleepTimeSeconds
+        self.isStandby = isStandby
     }
 }
 
@@ -65,6 +118,61 @@ public enum AgentHookState: String, Codable, CaseIterable, Sendable {
 public enum MouseWheelDirection: String, Codable, Sendable {
     case up
     case down
+}
+
+public enum PresetAction: String, CaseIterable, Codable, Sendable {
+    case fn = "fn"
+    case enter = "enter"
+    case cmdDelete = "cmdDelete"
+    case scrollUp = "scrollUp"
+    case scrollDown = "scrollDown"
+    case selectAll = "selectAll"
+    case copy = "copy"
+    case paste = "paste"
+    case undo = "undo"
+    case playPause = "playPause"
+    case mute = "mute"
+    case volumeUp = "volumeUp"
+    case volumeDown = "volumeDown"
+    case none = "none"
+
+    public var displayName: String {
+        switch self {
+        case .fn: return "Fn 键"
+        case .enter: return "Enter (回车)"
+        case .cmdDelete: return "⌘ + Delete (删除)"
+        case .scrollUp: return "滚轮向上 (Scroll Up)"
+        case .scrollDown: return "滚轮向下 (Scroll Down)"
+        case .selectAll: return "⌘A (全选)"
+        case .copy: return "⌘C (复制)"
+        case .paste: return "⌘V (粘贴)"
+        case .undo: return "⌘Z (撤销)"
+        case .playPause: return "播放 / 暂停"
+        case .mute: return "静音"
+        case .volumeUp: return "音量 +"
+        case .volumeDown: return "音量 -"
+        case .none: return "无动作"
+        }
+    }
+
+    public var actionConfig: ActionConfig {
+        switch self {
+        case .fn: return .keySequence(keys: ["fn"])
+        case .enter: return .keySequence(keys: ["return"])
+        case .cmdDelete: return .keySequence(keys: ["command", "delete"])
+        case .scrollUp: return .mouseWheel(direction: .up)
+        case .scrollDown: return .mouseWheel(direction: .down)
+        case .selectAll: return .keySequence(keys: ["option", "command", "a"])
+        case .copy: return .keySequence(keys: ["command", "c"])
+        case .paste: return .keySequence(keys: ["command", "v"])
+        case .undo: return .keySequence(keys: ["command", "z"])
+        case .playPause: return .keySequence(keys: ["space"])
+        case .mute: return .shellCommand(command: "osascript -e 'set volume output muted not (output muted of (get volume settings))'")
+        case .volumeUp: return .shellCommand(command: "osascript -e 'set volume output volume ((output volume of (get volume settings)) + 6)'")
+        case .volumeDown: return .shellCommand(command: "osascript -e 'set volume output volume ((output volume of (get volume settings)) - 6)'")
+        case .none: return .keySequence(keys: [])
+        }
+    }
 }
 
 public enum ActionConfig: Codable, Equatable, Sendable {
@@ -106,6 +214,25 @@ public enum ActionConfig: Codable, Equatable, Sendable {
         case let .shellCommand(command):
             try container.encode("shellCommand", forKey: .type)
             try container.encode(command, forKey: .command)
+        }
+    }
+
+    public var summary: String {
+        switch self {
+        case let .keySequence(keys):
+            if keys.isEmpty { return "无动作" }
+            if keys == ["fn"] { return "Fn" }
+            if keys == ["return"] { return "Enter" }
+            if keys == ["command", "delete"] { return "⌘ Delete" }
+            if keys == ["option", "command", "a"] { return "⌘A" }
+            if keys == ["command", "c"] { return "⌘C" }
+            if keys == ["command", "v"] { return "⌘V" }
+            if keys == ["command", "z"] { return "⌘Z" }
+            return keys.joined(separator: " + ")
+        case let .mouseWheel(direction):
+            return direction == .up ? "滚轮向上" : "滚轮向下"
+        case let .shellCommand(command):
+            return "Shell: \(command.prefix(15))..."
         }
     }
 }
@@ -156,6 +283,17 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
         case .knobLeft: return knobLeft
         case .knobRight: return knobRight
         case .knobPress: return knobPress
+        }
+    }
+
+    public mutating func setAction(_ action: ActionConfig, for control: InputControl) {
+        switch control {
+        case .topButton: topButton = action
+        case .middleButton: middleButton = action
+        case .bottomButton: bottomButton = action
+        case .knobLeft: knobLeft = action
+        case .knobRight: knobRight = action
+        case .knobPress: knobPress = action
         }
     }
 }

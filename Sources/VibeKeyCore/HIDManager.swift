@@ -23,15 +23,27 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
     private var hidManager: IOHIDManager?
     private var connectedDevice: IOHIDDevice?
     private var heartbeatTimer: Timer?
+    private var pollTimer: Timer?
     private var isStarted = false
+
+    // State guards & counters
+    private var heartbeatInFlight = false
+    private var onlineGeneration: UInt64 = 0
 
     // Persistent heap buffer for IOHID input report callback
     private var inputReportBuffer: UnsafeMutablePointer<UInt8>?
     private var inputReportCapacity = 64
 
+    // Serial number chunks collector
+    private var snChunks: [Int: String] = [:]
+
+    // Current snapshot
+    public private(set) var currentSnapshot = VibeKeyDeviceInfoSnapshot()
+
     public var onDeviceConnected: (() -> Void)?
     public var onDeviceDisconnected: (() -> Void)?
     public var onBatteryUpdated: ((VibeKeyBatteryStatus) -> Void)?
+    public var onDeviceInfoUpdated: ((VibeKeyDeviceInfoSnapshot) -> Void)?
     public var onEventReceived: ((InputControl, ButtonPhase) -> Void)?
 
     private let ioQueue = DispatchQueue(label: "com.patrickfu.vibekey.hid.io", qos: .userInitiated)
@@ -67,9 +79,13 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         }
         guard isStarted else { return }
         isStarted = false
-        stopHeartbeat()
+        stopTimers()
 
         if let device = connectedDevice {
+            // Send clean offline notification before detaching
+            if let offlineReport = try? VibeKeyPacketBuilder.softwareOnlineReport(false) {
+                _ = try? sendReportSync(offlineReport, to: device)
+            }
             detachInputDevice(device)
             connectedDevice = nil
         }
@@ -86,6 +102,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         }
 
         hidManager = nil
+        currentSnapshot = VibeKeyDeviceInfoSnapshot()
     }
 
     private func setupHIDManager() {
@@ -128,7 +145,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             return
         }
 
-        // Proactively discover devices already attached before app launch
+        // Check if device is already plugged in
         if let existingDevices = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>,
            let device = existingDevices.first {
             handleDeviceMatched(device)
@@ -140,19 +157,25 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         connectedDevice = device
 
         attachInputDevice(device)
-        self.onDeviceConnected?()
+        currentSnapshot.isConnected = true
+        snChunks.removeAll()
+        onlineGeneration &+= 1
 
-        // Handshake: Reset to native baseline first, then activate online mode and heartbeat
+        self.onDeviceConnected?()
+        self.onDeviceInfoUpdated?(self.currentSnapshot)
+
+        // Handshake: Reset to native baseline first, then activate online mode once, and initial heartbeat
+        let generation = self.onlineGeneration
         ioQueue.async { [weak self] in
-            guard let self = self else { return }
-            
-            // 1. Send offline reset packet
+            guard let self = self, self.onlineGeneration == generation else { return }
+
+            // 1. Send offline reset packet to reset MCU firmware state cleanly
             if let offlineReport = try? VibeKeyPacketBuilder.softwareOnlineReport(false) {
                 _ = try? self.sendReportSync(offlineReport, to: device)
             }
-            usleep(80_000) // 80ms baseline rest
+            Thread.sleep(forTimeInterval: 0.08) // 80ms baseline rest
 
-            // 2. Enable host-online mode
+            // 2. Enable host-online mode once (Firmware transitions to online; NOT in periodic heartbeat)
             if let onlineReport = try? VibeKeyPacketBuilder.softwareOnlineReport(true) {
                 _ = try? self.sendReportSync(onlineReport, to: device)
             }
@@ -163,18 +186,23 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             }
 
             DispatchQueue.main.async {
+                guard self.onlineGeneration == generation else { return }
                 self.startHeartbeat()
-                self.queryBattery()
+                self.startPeriodicPolling()
+                self.refreshDeviceInfo()
             }
         }
     }
 
     private func handleDeviceRemoved(_ device: IOHIDDevice) {
         guard let current = connectedDevice, current === device else { return }
-        stopHeartbeat()
+        stopTimers()
         detachInputDevice(device)
         connectedDevice = nil
+        onlineGeneration &+= 1
+        currentSnapshot = VibeKeyDeviceInfoSnapshot(isConnected: false)
         onDeviceDisconnected?()
+        onDeviceInfoUpdated?(currentSnapshot)
     }
 
     private func attachInputDevice(_ device: IOHIDDevice) {
@@ -198,7 +226,6 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             selfPtr
         )
 
-        // Formally schedule device with run loop to receive asynchronous input reports reliably
         IOHIDDeviceScheduleWithRunLoop(
             device,
             CFRunLoopGetMain(),
@@ -233,17 +260,68 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             if case let .key(control, phase) = event {
                 DispatchQueue.main.async {
                     self.onEventReceived?(control, phase)
+                    // If device was in standby, mark active
+                    if self.currentSnapshot.isStandby {
+                        self.currentSnapshot.isStandby = false
+                        self.onDeviceInfoUpdated?(self.currentSnapshot)
+                    }
                 }
             }
             return
         }
 
-        // 2. Check for power / battery responses
-        if let powerResp = VibeKeyParser.parsePowerResponse(plaintext: plaintext) {
-            if case let .battery(status) = powerResp {
+        // 2. Check for firmware version response (0x01, 0x04, 0x04)
+        if let version = VibeKeyParser.parseFirmwareVersion(plaintext: plaintext) {
+            DispatchQueue.main.async {
+                self.currentSnapshot.firmwareVersion = version
+                self.onDeviceInfoUpdated?(self.currentSnapshot)
+            }
+            return
+        }
+
+        // 3. Check for serial number chunks (0x01, 0x01, 0x0B)
+        if let chunk = VibeKeyParser.parseSerialNumberChunk(plaintext: plaintext) {
+            snChunks[chunk.seg] = chunk.text
+            let fullSN = snChunks.keys.sorted().compactMap { self.snChunks[$0] }.joined()
+            if !fullSN.isEmpty {
                 DispatchQueue.main.async {
-                    self.onBatteryUpdated?(status)
+                    self.currentSnapshot.serialNumber = fullSN
+                    self.onDeviceInfoUpdated?(self.currentSnapshot)
                 }
+            }
+            return
+        }
+
+        // 4. Check for device notices (0x0B)
+        if let notice = VibeKeyParser.parseDeviceNotice(plaintext: plaintext) {
+            DispatchQueue.main.async {
+                switch notice {
+                case let .standby(isStandby):
+                    self.currentSnapshot.isStandby = isStandby
+                case let .active(isActive):
+                    self.currentSnapshot.isStandby = !isActive
+                case .powerOn:
+                    self.currentSnapshot.isStandby = false
+                    self.refreshDeviceInfo()
+                }
+                self.onDeviceInfoUpdated?(self.currentSnapshot)
+            }
+            return
+        }
+
+        // 5. Check for power / battery responses
+        if let powerResp = VibeKeyParser.parsePowerResponse(plaintext: plaintext) {
+            DispatchQueue.main.async {
+                switch powerResp {
+                case let .battery(status):
+                    self.currentSnapshot.battery = status
+                    self.onBatteryUpdated?(status)
+                case let .standbyTime(sec):
+                    self.currentSnapshot.standbyTimeSeconds = sec
+                case let .sleepTime(sec):
+                    self.currentSnapshot.sleepTimeSeconds = sec
+                }
+                self.onDeviceInfoUpdated?(self.currentSnapshot)
             }
             return
         }
@@ -272,22 +350,59 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         }
     }
 
+    public func refreshDeviceInfo() {
+        guard let device = connectedDevice else { return }
+        ioQueue.async { [weak self] in
+            guard let self = self else { return }
+            // 1. Query Battery
+            if let rep = try? VibeKeyPacketBuilder.powerQueryReport(commandID: 0x02) {
+                _ = try? self.sendReportSync(rep, to: device)
+            }
+            usleep(25_000) // 25ms gap between queries
+
+            // 2. Query Firmware Version
+            if let rep = try? VibeKeyPacketBuilder.firmwareVersionQueryReport() {
+                _ = try? self.sendReportSync(rep, to: device)
+            }
+            usleep(25_000)
+
+            // 3. Query Serial Number
+            if let rep = try? VibeKeyPacketBuilder.serialNumberQueryReport() {
+                _ = try? self.sendReportSync(rep, to: device)
+            }
+        }
+    }
+
     public func queryBattery() {
-        guard let report = try? VibeKeyPacketBuilder.powerQueryReport(commandID: 0x02) else { return }
-        try? sendCommand(report)
+        guard let device = connectedDevice,
+              let report = try? VibeKeyPacketBuilder.powerQueryReport(commandID: 0x02) else { return }
+        ioQueue.async { [weak self] in
+            _ = try? self?.sendReportSync(report, to: device)
+        }
     }
 
     private func startHeartbeat() {
-        stopHeartbeat()
-        // 1.0 second periodic heartbeat matching vendor timing (heartbeat + online reaffirmation)
-        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self = self, let device = self.connectedDevice else { return }
-            self.ioQueue.async {
-                // Periodically reaffirm online state 3 to prevent firmware watchdog from timing out
-                if let onlineReport = try? VibeKeyPacketBuilder.softwareOnlineReport(true) {
-                    _ = try? self.sendReportSync(onlineReport, to: device)
+        heartbeatTimer?.invalidate()
+        heartbeatInFlight = false
+        let generation = self.onlineGeneration
+
+        // 0.8 second interval matching vendor and community proven timing.
+        // NOTE: Only sends heartbeatReport() (06 01 23 00 01), NEVER sends softwareOnlineReport(true)!
+        // Sending softwareOnlineReport in heartbeat causes LED flashing and firmware watchdog reset cycles.
+        let timer = Timer(timeInterval: 0.8, repeats: true) { [weak self] _ in
+            guard let self = self,
+                  let device = self.connectedDevice,
+                  self.onlineGeneration == generation,
+                  !self.heartbeatInFlight else { return }
+
+            self.heartbeatInFlight = true
+            self.ioQueue.async { [weak self] in
+                guard let self = self else { return }
+                defer {
+                    DispatchQueue.main.async {
+                        self.heartbeatInFlight = false
+                    }
                 }
-                // Send heartbeat report
                 if let heartbeatReport = try? VibeKeyPacketBuilder.heartbeatReport() {
                     _ = try? self.sendReportSync(heartbeatReport, to: device)
                 }
@@ -297,8 +412,24 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         RunLoop.main.add(timer, forMode: .common)
     }
 
-    private func stopHeartbeat() {
+    private func startPeriodicPolling() {
+        pollTimer?.invalidate()
+        let generation = self.onlineGeneration
+
+        // Periodically refresh battery every 15 seconds to ensure charging / percentage is live
+        let timer = Timer(timeInterval: 15.0, repeats: true) { [weak self] _ in
+            guard let self = self, self.onlineGeneration == generation else { return }
+            self.queryBattery()
+        }
+        pollTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopTimers() {
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
+        pollTimer?.invalidate()
+        pollTimer = nil
+        heartbeatInFlight = false
     }
 }

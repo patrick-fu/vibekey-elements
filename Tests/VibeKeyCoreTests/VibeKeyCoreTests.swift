@@ -180,3 +180,52 @@ final class VibeKeyCoreTests: XCTestCase {
         XCTAssertEqual(config, decoded)
     }
 }
+
+    // MARK: - 7. Firmware Version, SN Chunks & Device Notices
+
+    func testFirmwareVersionParsing() throws {
+        var plaintext = [UInt8](repeating: 0, count: 56)
+        plaintext[0] = 0x81
+        plaintext[1] = 0x04
+        plaintext[2] = 0x04
+        plaintext[10] = 1
+        plaintext[11] = 0
+        plaintext[12] = 3
+
+        let version = VibeKeyParser.parseFirmwareVersion(plaintext: plaintext)
+        XCTAssertEqual(version, "1.0.3")
+    }
+
+    func testSerialNumberChunkParsing() throws {
+        // Mock chunk 0: len = 6, seg = 0, "VK-05A"
+        var plaintext = [UInt8](repeating: 0, count: 56)
+        plaintext[0] = 0x81
+        plaintext[1] = 0x01
+        plaintext[2] = 0x0B
+        plaintext[4] = 6 // len
+        plaintext[5] = 0 // seg
+        let chunkString = "VK-05A"
+        let ascii = [UInt8](chunkString.utf8)
+        for (i, b) in ascii.enumerated() {
+            plaintext[6 + i] = b
+        }
+
+        let result = VibeKeyParser.parseSerialNumberChunk(plaintext: plaintext)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.seg, 0)
+        XCTAssertEqual(result?.text, "VK-05A")
+    }
+
+    func testDeviceNoticeParsing() throws {
+        // Standby notice: 0B 0D 01
+        let standbyPlain: [UInt8] = [0x0B, 0x0D, 0x01, 0x00]
+        XCTAssertEqual(VibeKeyParser.parseDeviceNotice(plaintext: standbyPlain), .standby(isStandby: true))
+
+        // Active notice: 0B 0B 01
+        let activePlain: [UInt8] = [0x0B, 0x0B, 0x01, 0x00]
+        XCTAssertEqual(VibeKeyParser.parseDeviceNotice(plaintext: activePlain), .active(isActive: true))
+
+        // PowerOn notice: 0B F0
+        let powerOnPlain: [UInt8] = [0x0B, 0xF0, 0x00, 0x00]
+        XCTAssertEqual(VibeKeyParser.parseDeviceNotice(plaintext: powerOnPlain), .powerOn)
+    }
