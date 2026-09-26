@@ -11,9 +11,9 @@ final class SettingsViewController: NSViewController {
     private var currentSnapshot: VibeKeyDeviceInfoSnapshot
 
     private let titleLabel = NSTextField(labelWithString: "VibeKey Elements")
+    private let subtitleLabel = NSTextField(labelWithString: "优篮子 AU05 轻量原生控制器")
     private let statusLabel = NSTextField(labelWithString: "正在检测设备...")
     private let hardwareInfoLabel = NSTextField(labelWithString: "")
-    private let batteryLabel = NSTextField(labelWithString: "")
 
     private var popupButtons: [InputControl: NSPopUpButton] = [:]
 
@@ -21,6 +21,7 @@ final class SettingsViewController: NSViewController {
         self.config = config
         self.currentSnapshot = snapshot
         super.init(nibName: nil, bundle: nil)
+        self.preferredContentSize = NSSize(width: 390, height: 415)
     }
 
     @available(*, unavailable)
@@ -29,27 +30,26 @@ final class SettingsViewController: NSViewController {
     }
 
     override func loadView() {
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 410))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 390, height: 415))
 
         titleLabel.font = .systemFont(ofSize: 16, weight: .bold)
 
-        let subtitleLabel = NSTextField(labelWithString: "优篮子 Ulanzi AU05 · 轻量原生控制器")
         subtitleLabel.font = .systemFont(ofSize: 11)
         subtitleLabel.textColor = .secondaryLabelColor
 
         statusLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        batteryLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        statusLabel.maximumNumberOfLines = 2
+        statusLabel.lineBreakMode = .byWordWrapping
+
         hardwareInfoLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         hardwareInfoLabel.textColor = .secondaryLabelColor
+        hardwareInfoLabel.maximumNumberOfLines = 2
+        hardwareInfoLabel.lineBreakMode = .byWordWrapping
 
-        let infoBox = NSBox()
-        infoBox.title = "硬件状态"
-        infoBox.titleFont = .systemFont(ofSize: 11, weight: .medium)
-        let infoStack = NSStackView(views: [statusLabel, batteryLabel, hardwareInfoLabel])
-        infoStack.orientation = .vertical
-        infoStack.alignment = .leading
-        infoStack.spacing = 5
-        infoBox.contentView = infoStack
+        let statusStack = NSStackView(views: [statusLabel, hardwareInfoLabel])
+        statusStack.orientation = .vertical
+        statusStack.alignment = .leading
+        statusStack.spacing = 3
 
         let mappingGrid = makeMappingGrid()
 
@@ -64,26 +64,34 @@ final class SettingsViewController: NSViewController {
         let bottomStack = NSStackView(views: [refreshBtn, NSView(), quitBtn])
         bottomStack.orientation = .horizontal
         bottomStack.alignment = .centerY
+        bottomStack.spacing = 10
 
         let mainStack = NSStackView(views: [
             titleLabel,
             subtitleLabel,
-            infoBox,
+            statusStack,
             mappingGrid,
             bottomStack
         ])
         mainStack.orientation = .vertical
         mainStack.alignment = .leading
-        mainStack.spacing = 12
+        mainStack.spacing = 14
         mainStack.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(mainStack)
 
+        // Make sure vertical compression never squashes labels into each other
+        titleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
+        subtitleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
+        statusStack.setContentCompressionResistancePriority(.required, for: .vertical)
+        mappingGrid.setContentCompressionResistancePriority(.required, for: .vertical)
+        bottomStack.setContentCompressionResistancePriority(.required, for: .vertical)
+
         NSLayoutConstraint.activate([
-            mainStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 18),
-            mainStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -18),
-            mainStack.topAnchor.constraint(equalTo: root.topAnchor, constant: 16),
-            mainStack.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16),
-            infoBox.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
+            mainStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
+            mainStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
+            mainStack.topAnchor.constraint(equalTo: root.topAnchor, constant: 18),
+            mainStack.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -18),
+            statusStack.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
             mappingGrid.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
             bottomStack.widthAnchor.constraint(equalTo: mainStack.widthAnchor)
         ])
@@ -119,14 +127,15 @@ final class SettingsViewController: NSViewController {
                 popup.menu?.addItem(item)
             }
 
-            popup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+            popup.widthAnchor.constraint(greaterThanOrEqualToConstant: 210).isActive = true
+            popup.heightAnchor.constraint(equalToConstant: 24).isActive = true
             popupButtons[control] = popup
             rows.append([label, popup])
         }
 
         let grid = NSGridView(views: rows)
-        grid.rowSpacing = 7
-        grid.columnSpacing = 14
+        grid.rowSpacing = 8
+        grid.columnSpacing = 16
         grid.column(at: 0).xPlacement = .leading
         grid.column(at: 1).xPlacement = .fill
         return grid
@@ -142,26 +151,22 @@ final class SettingsViewController: NSViewController {
 
     private func updateUI() {
         if currentSnapshot.isConnected {
-            statusLabel.stringValue = "● 设备已连接 (优篮子 AU05)"
+            let batteryText: String
+            if let b = currentSnapshot.battery {
+                let charging = b.isCharging ? " ⚡(充电中)" : ""
+                batteryText = " · 电量 \(b.percent)%\(charging) [\(b.voltageMillivolts)mV]"
+            } else {
+                batteryText = " · 电量获取中..."
+            }
+            statusLabel.stringValue = "● 优篮子 AU05 (已连接)\(batteryText)"
             statusLabel.textColor = .systemGreen
 
-            if let b = currentSnapshot.battery {
-                let bolt = b.isCharging ? "⚡ (充电中)" : "(电池供电)"
-                batteryLabel.stringValue = "电量: \(b.percent)% \(bolt)  ·  电压: \(b.voltageMillivolts) mV"
-                batteryLabel.textColor = b.isCharging ? .systemOrange : .labelColor
-            } else {
-                batteryLabel.stringValue = "电量: 获取中..."
-                batteryLabel.textColor = .secondaryLabelColor
-            }
-
-            let fw = currentSnapshot.firmwareVersion ?? "读取中..."
-            let sn = currentSnapshot.serialNumber ?? "读取中..."
+            let fw = currentSnapshot.firmwareVersion ?? "读取中"
+            let sn = currentSnapshot.serialNumber ?? "读取中"
             hardwareInfoLabel.stringValue = "固件: \(fw)  |  SN: \(sn)"
         } else {
             statusLabel.stringValue = "○ 设备未连接 (Offline)"
             statusLabel.textColor = .systemGray
-            batteryLabel.stringValue = "电量: —"
-            batteryLabel.textColor = .secondaryLabelColor
             hardwareInfoLabel.stringValue = "请插入 2.4G 接收器或通过 USB 连接"
         }
 
@@ -255,6 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let pop = NSPopover()
         pop.behavior = .transient
         pop.animates = true
+        pop.contentSize = NSSize(width: 390, height: 415)
 
         let vc = SettingsViewController(config: config, snapshot: currentSnapshot)
         vc.onConfigurationChanged = { [weak self] newConfig in
