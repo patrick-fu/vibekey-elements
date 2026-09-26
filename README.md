@@ -5,6 +5,10 @@
 > **The ultimate developer-oriented hub for Ulanzi VibeKey (AU05) on macOS.**  
 > *Zero vendor dynamic libraries. Pure-Swift TEA protocol. Real-time status bar dashboard. AI Agent hardware hooks. Full-featured CLI.*
 
+<p align="center">
+  <img src="docs/screenshots/menu-bar-panel.png" width="420" alt="VibeKey Elements Menu Bar Panel">
+</p>
+
 ---
 
 ## 🌟 Overview

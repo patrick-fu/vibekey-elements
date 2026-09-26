@@ -5,6 +5,10 @@
 > **专为优篮子 Ulanzi VibeKey (AU05) 打造的 macOS 极客硬件中枢。**  
 > *纯血 Swift 实现 · 零闭源动态库 · 状态栏交互式仪表盘 · AI Agent 硬件状态联动 · 全功能 CLI 工具箱*
 
+<p align="center">
+  <img src="docs/screenshots/menu-bar-panel.png" width="420" alt="VibeKey Elements 状态栏控制面板">
+</p>
+
 ---
 
 ## 🌟 项目简介
