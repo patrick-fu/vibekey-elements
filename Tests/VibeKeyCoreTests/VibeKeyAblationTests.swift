@@ -101,6 +101,7 @@ final class VibeKeyAblationTests: XCTestCase {
         XCTAssertEqual(emptyConfig.ledMode, .auto)
         XCTAssertEqual(emptyConfig.standbySeconds, 300)
         XCTAssertEqual(emptyConfig.sleepSeconds, 3600)
+        XCTAssertEqual(emptyConfig.longConnectedMode, false)
 
         // 2. Legacy v1 JSON (pre-microphone & pre-sleep parameters)
         let legacyJson = """
@@ -156,6 +157,42 @@ final class VibeKeyAblationTests: XCTestCase {
         XCTAssertEqual(sleepConfig.ledMode, .breathing)
         XCTAssertEqual(sleepConfig.micNoiseReduction, 0)
         XCTAssertEqual(sleepConfig.micEnabled, true)
+        XCTAssertEqual(sleepConfig.longConnectedMode, false)
+    }
+
+    // MARK: - Ablation 4b: Long-Connect Idle Standby Policy
+
+    /// Long-connect mode suppresses idle standby so sustained work cannot hand off
+    /// to offline mode. Factory behavior remains unchanged when the mode is off.
+    func testAblationLongConnectIdleStandbyPolicy() {
+        XCTAssertFalse(
+            VibeKeyPowerPolicy.shouldEnterIdleStandby(
+                isLongConnectedMode: true,
+                standbyTimeoutSeconds: 300,
+                idleInterval: 300
+            )
+        )
+        XCTAssertFalse(
+            VibeKeyPowerPolicy.shouldEnterIdleStandby(
+                isLongConnectedMode: false,
+                standbyTimeoutSeconds: 0,
+                idleInterval: 3600
+            )
+        )
+        XCTAssertFalse(
+            VibeKeyPowerPolicy.shouldEnterIdleStandby(
+                isLongConnectedMode: false,
+                standbyTimeoutSeconds: 300,
+                idleInterval: 299
+            )
+        )
+        XCTAssertTrue(
+            VibeKeyPowerPolicy.shouldEnterIdleStandby(
+                isLongConnectedMode: false,
+                standbyTimeoutSeconds: 300,
+                idleInterval: 300
+            )
+        )
     }
 
     // MARK: - Ablation 5: Short & Truncated Packet Boundary Guards

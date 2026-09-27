@@ -312,6 +312,30 @@ final class VibeKeyCoreTests: XCTestCase {
         XCTAssertFalse(manager.isPowerSaving)
     }
 
+    func testHostSleepOverridesIdleStandbyForLongConnect() {
+        let manager = VibeKeyHIDManager()
+        manager.enterPowerSaving(reason: "InactivityTimeout")
+        XCTAssertTrue(manager.isPowerSaving)
+
+        manager.hostWillSleep()
+        manager.setLongConnectedMode(true)
+        XCTAssertTrue(manager.isPowerSaving, "Host sleep must override prior idle standby")
+    }
+
+    func testLongConnectOnlyResumesIdleStandby() {
+        let manager = VibeKeyHIDManager()
+        manager.setLongConnectedMode(true)
+
+        manager.hostWillSleep()
+        manager.setLongConnectedMode(true)
+        XCTAssertTrue(manager.isPowerSaving, "Long-connect must not break host-sleep zero-downlink standby")
+
+        manager.resumeFromPowerSaving()
+        manager.enterPowerSaving(reason: "InactivityTimeout")
+        manager.setLongConnectedMode(true)
+        XCTAssertFalse(manager.isPowerSaving, "Long-connect should recover from idle standby")
+    }
+
     func testStandbyTimeoutConfiguration() {
         let manager = VibeKeyHIDManager()
         XCTAssertEqual(manager.standbyTimeoutSeconds, 300)

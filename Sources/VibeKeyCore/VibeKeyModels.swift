@@ -250,6 +250,7 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
     public var ledMode: LEDMode
     public var standbySeconds: UInt32
     public var sleepSeconds: UInt32
+    public var longConnectedMode: Bool
 
     public init(
         topButton: ActionConfig = .keySequence(keys: ["fn"]),
@@ -262,7 +263,8 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
         micEnabled: Bool = true,
         ledMode: LEDMode = .auto,
         standbySeconds: UInt32 = 300,
-        sleepSeconds: UInt32 = 3600
+        sleepSeconds: UInt32 = 3600,
+        longConnectedMode: Bool = false
     ) {
         self.topButton = topButton
         self.middleButton = middleButton
@@ -275,11 +277,13 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
         self.ledMode = ledMode
         self.standbySeconds = standbySeconds
         self.sleepSeconds = sleepSeconds
+        self.longConnectedMode = longConnectedMode
     }
 
     enum CodingKeys: String, CodingKey {
         case topButton, middleButton, bottomButton, knobLeft, knobRight, knobPress
         case micNoiseReduction, micEnabled, ledMode, standbySeconds, sleepSeconds
+        case longConnectedMode
     }
 
     public init(from decoder: Decoder) throws {
@@ -295,6 +299,7 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
         self.ledMode = try container.decodeIfPresent(LEDMode.self, forKey: .ledMode) ?? .auto
         self.standbySeconds = try container.decodeIfPresent(UInt32.self, forKey: .standbySeconds) ?? 300
         self.sleepSeconds = try container.decodeIfPresent(UInt32.self, forKey: .sleepSeconds) ?? 3600
+        self.longConnectedMode = try container.decodeIfPresent(Bool.self, forKey: .longConnectedMode) ?? false
     }
 
     public func action(for control: InputControl) -> ActionConfig {

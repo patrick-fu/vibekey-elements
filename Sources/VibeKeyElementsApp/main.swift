@@ -27,12 +27,13 @@ final class SettingsViewController: NSViewController {
     private var ledPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private var standbyPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private var sleepPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let longConnectCheckbox = NSButton(checkboxWithTitle: "长连保活（暂停闲置省电）", target: nil, action: nil)
 
     init(config: VibeKeyConfiguration, snapshot: VibeKeyDeviceInfoSnapshot) {
         self.config = config
         self.currentSnapshot = snapshot
         super.init(nibName: nil, bundle: nil)
-        self.preferredContentSize = NSSize(width: 440, height: 630)
+        self.preferredContentSize = NSSize(width: 440, height: 660)
     }
 
     @available(*, unavailable)
@@ -41,7 +42,7 @@ final class SettingsViewController: NSViewController {
     }
 
     override func loadView() {
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 630))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 660))
 
         // 1. Header
         titleLabel.font = .systemFont(ofSize: 16, weight: .bold)
@@ -311,12 +312,17 @@ final class SettingsViewController: NSViewController {
         sleepPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
         sleepPopup.heightAnchor.constraint(equalToConstant: 24).isActive = true
 
+        longConnectCheckbox.font = .systemFont(ofSize: 12)
+        longConnectCheckbox.target = self
+        longConnectCheckbox.action = #selector(handleLongConnectChanged(_:))
+
         let grid = NSGridView(views: [
             [nrLabel, nrPopup],
             [micLabel, micEnablePopup],
             [ledLabel, ledPopup],
             [standbyLabel, standbyPopup],
-            [sleepLabel, sleepPopup]
+            [sleepLabel, sleepPopup],
+            [makeSectionHeader("连接模式"), longConnectCheckbox]
         ])
         grid.rowSpacing = 5
         grid.columnSpacing = 16
@@ -416,7 +422,10 @@ final class SettingsViewController: NSViewController {
             standbyPopup.select(standbyItem)
         }
 
-        // 6. Update Sleep popup
+        // 6. Update connection mode
+        longConnectCheckbox.state = config.longConnectedMode ? .on : .off
+
+        // 7. Update Sleep popup
         for item in sleepPopup.itemArray {
             item.state = (UInt32(item.tag) == config.sleepSeconds) ? .on : .off
         }
@@ -465,6 +474,13 @@ final class SettingsViewController: NSViewController {
         let sec = UInt32(sender.selectedItem?.tag ?? 300)
         config.standbySeconds = sec
         VibeKeyHIDManager.shared.setStandbyTimeout(seconds: sec)
+        onConfigurationChanged?(config)
+        updateUI()
+    }
+
+    @objc private func handleLongConnectChanged(_ sender: NSButton) {
+        config.longConnectedMode = sender.state == .on
+        VibeKeyHIDManager.shared.setLongConnectedMode(config.longConnectedMode)
         onConfigurationChanged?(config)
         updateUI()
     }
@@ -588,6 +604,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
            let saved = try? JSONDecoder().decode(VibeKeyConfiguration.self, from: data) {
             config = saved
             VibeKeyHIDManager.shared.standbyTimeoutSeconds = TimeInterval(saved.standbySeconds)
+            VibeKeyHIDManager.shared.setLongConnectedMode(saved.longConnectedMode)
         }
     }
 
@@ -611,7 +628,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         let pop = NSPopover()
         pop.behavior = .transient
         pop.animates = true
-        pop.contentSize = NSSize(width: 440, height: 630)
+        pop.contentSize = NSSize(width: 440, height: 660)
 
         let vc = SettingsViewController(config: config, snapshot: currentSnapshot)
         vc.onConfigurationChanged = { [weak self] newConfig in
@@ -635,7 +652,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
                 micEnabled: self.config.micEnabled,
                 ledMode: self.config.ledMode,
                 standbySeconds: self.config.standbySeconds,
-                sleepSeconds: self.config.sleepSeconds
+                sleepSeconds: self.config.sleepSeconds,
+                longConnectedMode: self.config.longConnectedMode
             )
             self.saveConfiguration()
             self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
@@ -866,7 +884,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             micEnabled: config.micEnabled,
             ledMode: config.ledMode,
             standbySeconds: config.standbySeconds,
-            sleepSeconds: config.sleepSeconds
+            sleepSeconds: config.sleepSeconds,
+            longConnectedMode: config.longConnectedMode
         )
         saveConfiguration()
         settingsVC?.updateState(config: config, snapshot: currentSnapshot)

@@ -31,8 +31,10 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
 
     // Power saving & inactivity state
     public private(set) var isPowerSaving = false
+    private var powerSavingReason = ""
     public private(set) var lastActivityTime = Date()
     public var standbyTimeoutSeconds: TimeInterval = 300 // 5 minutes factory default
+    public private(set) var isLongConnectedMode = false
 
     // State guards & counters
     private var heartbeatInFlight = false
@@ -130,6 +132,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         }
         guard !isPowerSaving else { return }
         isPowerSaving = true
+        powerSavingReason = reason
         currentSnapshot.isStandby = isStandby
         powerLogger.info("Entering power saving mode (isStandby: \(isStandby, privacy: .public), reason: \(reason, privacy: .public)). Halting heartbeat & polling timers.")
         stopTimers()
@@ -156,6 +159,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         }
         guard isPowerSaving else { return }
         isPowerSaving = false
+        powerSavingReason = ""
         currentSnapshot.isStandby = false
         lastActivityTime = Date()
         powerLogger.info("Resuming from power saving mode (reason: \(reason, privacy: .public)). Restoring software online, heartbeat & polling timers.")
@@ -185,13 +189,32 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         onDeviceInfoUpdated?(currentSnapshot)
     }
 
+    public func setLongConnectedMode(_ enabled: Bool) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.setLongConnectedMode(enabled) }
+            return
+        }
+
+        isLongConnectedMode = enabled
+        // Host sleep is a battery-safety boundary, unlike the local idle timeout.
+        if enabled, isPowerSaving, powerSavingReason == "InactivityTimeout" {
+            powerLogger.info("Long-connect mode enabled. Resuming from idle standby.")
+            resumeFromPowerSaving(reason: "LongConnectEnabled")
+        }
+    }
+
     public func hostWillSleep() {
+        // Long-connect mode only suppresses idle standby; host sleep always uses
+        // zero-downlink standby so background DarkWake traffic cannot drain AU05.
         guard Thread.isMainThread else {
             DispatchQueue.main.async { self.hostWillSleep() }
             return
         }
         powerLogger.notice("macOS host sleep/power-off notification received. Forcing standby power saving mode.")
         enterPowerSaving(isStandby: true, reason: "HostSleep")
+        // Re-entering is idempotent, so explicitly promote a prior idle standby
+        // to the stricter host-sleep boundary before power state can resume.
+        powerSavingReason = "HostSleep"
     }
 
     public func hostDidWake() {
@@ -778,7 +801,11 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
 
             // Inactivity Check: if device has been idle past standbyTimeoutSeconds (0 means disabled), enter power saving
             let elapsed = Date().timeIntervalSince(self.lastActivityTime)
-            if self.standbyTimeoutSeconds > 0 && elapsed >= self.standbyTimeoutSeconds {
+            if VibeKeyPowerPolicy.shouldEnterIdleStandby(
+                isLongConnectedMode: self.isLongConnectedMode,
+                standbyTimeoutSeconds: self.standbyTimeoutSeconds,
+                idleInterval: elapsed
+            ) {
                 powerLogger.info("Device idle threshold reached (\(Int(elapsed), privacy: .public)s >= \(Int(self.standbyTimeoutSeconds), privacy: .public)s). Entering standby power saving.")
                 self.enterPowerSaving(isStandby: true, reason: "InactivityTimeout")
                 return

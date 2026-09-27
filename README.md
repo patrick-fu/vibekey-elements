@@ -47,6 +47,7 @@ It provides complete control over hardware lighting, audio noise reduction, stan
 ### 5. Ultra-Low Power & Deep Sleep Management (Zero Downlink RF Emissions)
 - **Eliminates Overnight Battery Drain**: Solves the common hardware issue where continuous host-side polling and heartbeats over the 2.4G dongle prevent the AU05 from sleeping overnight.
 - **Zero Downlink RF Traffic in Standby**: When the AU05 is idle for 5 minutes (Standby), powered down, or when macOS enters sleep, VibeKey Elements halts all recurring heartbeats and query packets, allowing the device MCU and 2.4G transceiver to rest in true microamp-level (~15–30 µA) deep sleep.
+- **Optional Long-Connect Mode**: Keeps the regular 0.8s heartbeat and suppresses idle standby for uninterrupted work sessions; macOS sleep still switches to zero-downlink standby.
 - **Instant Wake on Touch**: Tapping any button or turning the dial immediately wakes the device and re-establishes host communication in milliseconds.
 - **Power-Aware Battery Polling**: Battery telemetry interval is relaxed to 180s (3 minutes) during active use, slashing unnecessary RF traffic by 92%.
 - **macOS System Sleep Coordination**: Full lifecycle integration with `NSWorkspace.willSleepNotification` and `didWakeNotification`.
