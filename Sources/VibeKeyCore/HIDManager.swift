@@ -474,6 +474,36 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         }
     }
 
+    func applyDeviceNotice(_ notice: VibeKeyNotice) {
+        switch notice {
+        case let .standby(isStandby):
+            if isStandby {
+                powerLogger.info("Device standby notice packet received from VibeKey.")
+                enterPowerSaving(isStandby: true, reason: "DeviceStandbyNotice")
+            } else {
+                lastActivityTime = Date()
+                powerLogger.info("Device active/wake notice packet received from VibeKey.")
+                resumeFromPowerSaving(reason: "DeviceStandbyNoticeExit")
+            }
+        case let .active(isActive):
+            // AU05 emits rapid paired active/inactive notices around power-state
+            // transitions. Treat them as wake confirmations only after local
+            // standby handoff; otherwise they make the menu-bar state flicker.
+            guard isActive, isPowerSaving else {
+                powerLogger.debug("Ignoring non-wake device activity notice.")
+                return
+            }
+            lastActivityTime = Date()
+            powerLogger.info("Device active notice received.")
+            resumeFromPowerSaving(reason: "DeviceActiveNotice")
+        case .powerOn:
+            lastActivityTime = Date()
+            powerLogger.info("Device powerOn notice received.")
+            resumeFromPowerSaving(reason: "DevicePowerOnNotice")
+            refreshDeviceInfo()
+        }
+    }
+
     private func handleInputReport(reportID: UInt32, bytes: [UInt8]) {
         let hasExplicitID = (reportID == UInt32(VibeKeyDeviceInfo.reportID))
         guard let plaintext = try? TEACodec.decryptInputReport(bytes, hasReportID: hasExplicitID) else { return }
@@ -518,31 +548,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         // 4. Check for device notices (0x0B)
         if let notice = VibeKeyParser.parseDeviceNotice(plaintext: plaintext) {
             DispatchQueue.main.async {
-                switch notice {
-                case let .standby(isStandby):
-                    if isStandby {
-                        powerLogger.info("Device standby notice packet received from VibeKey.")
-                        self.enterPowerSaving(isStandby: true, reason: "DeviceStandbyNotice")
-                    } else {
-                        self.lastActivityTime = Date()
-                        powerLogger.info("Device active/wake notice packet received from VibeKey.")
-                        self.resumeFromPowerSaving(reason: "DeviceStandbyNoticeExit")
-                    }
-                case let .active(isActive):
-                    if isActive {
-                        self.lastActivityTime = Date()
-                        powerLogger.info("Device active notice received.")
-                        self.resumeFromPowerSaving(reason: "DeviceActiveNotice")
-                    } else {
-                        powerLogger.info("Device inactive notice received.")
-                        self.enterPowerSaving(isStandby: true, reason: "DeviceInactiveNotice")
-                    }
-                case .powerOn:
-                    self.lastActivityTime = Date()
-                    powerLogger.info("Device powerOn notice received.")
-                    self.resumeFromPowerSaving(reason: "DevicePowerOnNotice")
-                    self.refreshDeviceInfo()
-                }
+                self.applyDeviceNotice(notice)
             }
             return
         }

@@ -282,4 +282,31 @@ final class VibeKeyAblationTests: XCTestCase {
         manager.setStandbyTimeout(seconds: 1800)
         XCTAssertEqual(manager.standbyTimeoutSeconds, 1800)
     }
+
+    func testAblationTransientActivityNoticeDoesNotToggleStandby() {
+        let manager = VibeKeyHIDManager()
+        manager.applyDeviceNotice(.active(isActive: false))
+        XCTAssertFalse(manager.isPowerSaving)
+        XCTAssertFalse(manager.currentSnapshot.isStandby)
+
+        manager.applyDeviceNotice(.active(isActive: true))
+        XCTAssertFalse(manager.isPowerSaving)
+        XCTAssertFalse(manager.currentSnapshot.isStandby)
+    }
+
+    func testAblationStandbyWakeActivityNoticeConfirmsResume() {
+        let manager = VibeKeyHIDManager()
+        manager.applyDeviceNotice(.standby(isStandby: true))
+        XCTAssertTrue(manager.isPowerSaving)
+        XCTAssertTrue(manager.currentSnapshot.isStandby)
+
+        manager.applyDeviceNotice(.active(isActive: false))
+        XCTAssertTrue(manager.isPowerSaving)
+        XCTAssertTrue(manager.currentSnapshot.isStandby)
+
+        manager.applyDeviceNotice(.active(isActive: true))
+        XCTAssertFalse(manager.isPowerSaving)
+        XCTAssertFalse(manager.currentSnapshot.isStandby)
+    }
+
 }
