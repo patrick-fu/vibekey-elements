@@ -27,7 +27,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
     private var wakeDevice: IOHIDDevice?
     private var heartbeatTimer: Timer?
     private var pollTimer: Timer?
-    private var isStarted = false
+    public private(set) var isStarted = false
 
     // Power saving & inactivity state
     public private(set) var isPowerSaving = false
@@ -258,6 +258,17 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
 
         let openStatus = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         guard openStatus == kIOReturnSuccess else {
+            powerLogger.error("IOHIDManagerOpen failed (\(openStatus, privacy: .public)). Leaving HID manager stopped for retry.")
+            IOHIDManagerRegisterDeviceMatchingCallback(manager, nil, nil)
+            IOHIDManagerRegisterDeviceRemovalCallback(manager, nil, nil)
+            IOHIDManagerUnscheduleFromRunLoop(
+                manager,
+                CFRunLoopGetMain(),
+                CFRunLoopMode.commonModes.rawValue
+            )
+            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+            hidManager = nil
+            isStarted = false
             return
         }
 

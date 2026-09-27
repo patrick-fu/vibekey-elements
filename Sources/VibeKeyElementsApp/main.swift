@@ -514,17 +514,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         setupHIDListeners()
         setupWorkspaceObservers()
 
-        if !VibeKeyHIDManager.hasInputMonitoringAccess() {
-            VibeKeyHIDManager.requestInputMonitoringAccess()
-        }
-
-        VibeKeyHIDManager.shared.start()
+        startHIDWhenAuthorized()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         workspaceObservers.removeAll()
         VibeKeyHIDManager.shared.stop()
+    }
+
+    private func startHIDWhenAuthorized(permissionAttempt: Int = 0, openRetryAttempt: Int = 0) {
+        if VibeKeyHIDManager.hasInputMonitoringAccess() {
+            VibeKeyHIDManager.shared.start()
+            // TCC can report granted while the first device open is still denied
+            // after a replaced bundle. Limit retries so a persistent IOReturn
+            // cannot make the menu bar process rebuild HIDManager forever.
+            if !VibeKeyHIDManager.shared.isStarted, openRetryAttempt < 4 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                    self?.startHIDWhenAuthorized(
+                        permissionAttempt: permissionAttempt,
+                        openRetryAttempt: openRetryAttempt + 1
+                    )
+                }
+            }
+            return
+        }
+
+        if permissionAttempt == 0 {
+            VibeKeyHIDManager.requestInputMonitoringAccess()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.startHIDWhenAuthorized(permissionAttempt: permissionAttempt + 1)
+        }
     }
 
     private func setupWorkspaceObservers() {
