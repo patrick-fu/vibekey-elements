@@ -21,6 +21,7 @@ final class SettingsViewController: NSViewController {
     private let hardwareInfoLabel = NSTextField(labelWithString: "")
 
     private var popupButtons: [InputControl: NSPopUpButton] = [:]
+    private var isLocalPowerSaving: Bool { VibeKeyHIDManager.shared.isPowerSaving }
     private var nrPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private var micEnablePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private var ledPopup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -341,12 +342,18 @@ final class SettingsViewController: NSViewController {
             } else {
                 batteryText = " · 电量获取中..."
             }
-            if currentSnapshot.isStandby {
+            if isLocalPowerSaving {
                 statusLabel.stringValue = "● 优篮子 AU05 (待机省电中)\(batteryText)"
                 statusLabel.textColor = .systemOrange
                 let fw = currentSnapshot.firmwareVersion ?? "读取中"
                 let sn = currentSnapshot.serialNumber ?? "读取中"
                 hardwareInfoLabel.stringValue = "固件: \(fw)  |  SN: \(sn) (按任意键唤醒)"
+            } else if currentSnapshot.isStandby {
+                statusLabel.stringValue = "● 优篮子 AU05 (已连接 · 硬件待机)\(batteryText)"
+                statusLabel.textColor = .systemGreen
+                let fw = currentSnapshot.firmwareVersion ?? "读取中"
+                let sn = currentSnapshot.serialNumber ?? "读取中"
+                hardwareInfoLabel.stringValue = "固件: \(fw)  |  SN: \(sn)"
             } else {
                 statusLabel.stringValue = "● 优篮子 AU05 (已连接)\(batteryText)"
                 statusLabel.textColor = .systemGreen
@@ -672,7 +679,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         if popover.isShown {
             popover.performClose(sender)
         } else {
-            if !currentSnapshot.isStandby {
+            if !VibeKeyHIDManager.shared.isPowerSaving {
                 VibeKeyHIDManager.shared.refreshDeviceInfo()
             }
             settingsVC?.updateState(config: config, snapshot: currentSnapshot)
@@ -881,7 +888,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         let iconName: String
         if !currentSnapshot.isConnected {
             iconName = "dial.medium"
-        } else if currentSnapshot.isStandby {
+        } else if VibeKeyHIDManager.shared.isPowerSaving {
             iconName = "dial.medium"
         } else {
             iconName = "dial.medium.fill"
@@ -914,7 +921,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
 
         if let battery = currentSnapshot.battery {
             let bolt = battery.isCharging ? " ⚡" : ""
-            let standbyMarker = currentSnapshot.isStandby ? " 💤" : ""
+            let standbyMarker = VibeKeyHIDManager.shared.isPowerSaving ? " 💤" : ""
             let text = " \(battery.percent)%\(bolt)\(standbyMarker)"
             let attr = NSAttributedString(
                 string: text,
@@ -923,11 +930,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
                 ]
             )
             button.attributedTitle = attr
-            let chargeState = battery.isCharging ? "充电中" : (currentSnapshot.isStandby ? "闲置待机省电中" : "电池供电")
+            let chargeState = battery.isCharging
+                ? "充电中"
+                : (VibeKeyHIDManager.shared.isPowerSaving ? "闲置待机省电中" : "电池供电")
             button.toolTip = "优篮子 AU05 · 电量 \(battery.percent)% (\(chargeState), \(battery.voltageMillivolts)mV)"
         } else {
             button.attributedTitle = NSAttributedString(string: "")
-            button.toolTip = currentSnapshot.isStandby ? "优篮子 AU05 (待机省电中)" : "优篮子 AU05 (已连接)"
+            button.toolTip = VibeKeyHIDManager.shared.isPowerSaving ? "优篮子 AU05 (待机省电中)" : "优篮子 AU05 (已连接)"
         }
     }
 
@@ -955,9 +964,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
         }
 
-        VibeKeyHIDManager.shared.onPowerSavingChanged = { [weak self] isPowerSaving in
+        VibeKeyHIDManager.shared.onPowerSavingChanged = { [weak self] _ in
             guard let self = self else { return }
-            self.currentSnapshot.isStandby = isPowerSaving
+            // Snapshot standby is the hardware display state; menu chrome tracks
+            // the manager's local offline-handoff state separately.
             self.updateStatusItemDisplay()
             self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
         }

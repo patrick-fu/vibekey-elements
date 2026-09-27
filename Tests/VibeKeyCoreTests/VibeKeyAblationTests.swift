@@ -294,19 +294,40 @@ final class VibeKeyAblationTests: XCTestCase {
         XCTAssertFalse(manager.currentSnapshot.isStandby)
     }
 
-    func testAblationStandbyWakeActivityNoticeConfirmsResume() {
+    func testAblationDeviceStandbyNoticeIsDisplayOnlyWhileOnline() {
         let manager = VibeKeyHIDManager()
+        var displayedStandbyStates: [Bool] = []
+        var powerSavingTransitions: [Bool] = []
+        manager.onDeviceInfoUpdated = { displayedStandbyStates.append($0.isStandby) }
+        manager.onPowerSavingChanged = { powerSavingTransitions.append($0) }
+
         manager.applyDeviceNotice(.standby(isStandby: true))
-        XCTAssertTrue(manager.isPowerSaving)
+        XCTAssertFalse(manager.isPowerSaving)
         XCTAssertTrue(manager.currentSnapshot.isStandby)
 
-        manager.applyDeviceNotice(.active(isActive: false))
+        manager.applyDeviceNotice(.active(isActive: true))
+        XCTAssertFalse(manager.isPowerSaving)
+        XCTAssertTrue(manager.currentSnapshot.isStandby)
+
+        manager.applyDeviceNotice(.standby(isStandby: false))
+        XCTAssertFalse(manager.isPowerSaving)
+        XCTAssertFalse(manager.currentSnapshot.isStandby)
+
+        manager.enterPowerSaving(isStandby: true, reason: "LocalInactivity")
         XCTAssertTrue(manager.isPowerSaving)
         XCTAssertTrue(manager.currentSnapshot.isStandby)
 
         manager.applyDeviceNotice(.active(isActive: true))
         XCTAssertFalse(manager.isPowerSaving)
         XCTAssertFalse(manager.currentSnapshot.isStandby)
+
+        manager.enterPowerSaving(isStandby: true, reason: "LocalSleep")
+        manager.applyDeviceNotice(.standby(isStandby: false))
+        XCTAssertFalse(manager.isPowerSaving)
+        XCTAssertFalse(manager.currentSnapshot.isStandby)
+
+        XCTAssertEqual(displayedStandbyStates, [true, false, true, false, true, false])
+        XCTAssertEqual(powerSavingTransitions, [true, false, true, false])
     }
 
 }

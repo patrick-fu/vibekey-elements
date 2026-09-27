@@ -478,12 +478,19 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         switch notice {
         case let .standby(isStandby):
             if isStandby {
-                powerLogger.info("Device standby notice packet received from VibeKey.")
-                enterPowerSaving(isStandby: true, reason: "DeviceStandbyNotice")
-            } else {
-                lastActivityTime = Date()
+                // The AU05 emits standby notices while remaining HID-responsive in
+                // online mode. Only a local idle timeout or host sleep may release
+                // software online mode and stop heartbeat traffic.
+                powerLogger.info("Device standby display notice received; keeping online mode active.")
+                currentSnapshot.isStandby = true
+                onDeviceInfoUpdated?(currentSnapshot)
+            } else if isPowerSaving {
                 powerLogger.info("Device active/wake notice packet received from VibeKey.")
                 resumeFromPowerSaving(reason: "DeviceStandbyNoticeExit")
+            } else {
+                powerLogger.info("Device standby exit notice received; updating display state only.")
+                currentSnapshot.isStandby = false
+                onDeviceInfoUpdated?(currentSnapshot)
             }
         case let .active(isActive):
             // AU05 emits rapid paired active/inactive notices around power-state
