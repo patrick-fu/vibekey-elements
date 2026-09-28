@@ -798,6 +798,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         setupPopover()
         setupHIDListeners()
         setupWorkspaceObservers()
+        promptForAccessibilityIfMissing()
         startHIDWhenAuthorized()
     }
 
@@ -809,6 +810,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
 
     @objc private func runPermissionCheckFromMenu() {
         settingsVC?.startPermissionFlow()
+    }
+
+    private func promptForAccessibilityIfMissing() {
+        guard !ActionPerformer.hasAccessibilityPermission() else { return }
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
     }
 
     private func startHIDWhenAuthorized(permissionAttempt: Int = 0, openRetryAttempt: Int = 0) {
