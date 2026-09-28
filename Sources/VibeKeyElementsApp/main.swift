@@ -4,6 +4,8 @@ import ApplicationServices
 import Foundation
 import VibeKeyCore
 
+private let vibeKeyProcessStartedAt = Date()
+
 final class SettingsViewController: NSViewController {
     var onConfigurationChanged: ((VibeKeyConfiguration) -> Void)?
     var onRefreshRequested: (() -> Void)?
@@ -219,7 +221,13 @@ final class SettingsViewController: NSViewController {
         ])
 
         self.view = root
-        updateUI()
+
+        // AppKit may already be inside the first layout pass when loadView
+        // returns. Mutating stack views here triggers layoutSubtreeIfNeeded
+        // recursion; defer the first model-to-UI refresh to a clean pass.
+        DispatchQueue.main.async { [weak self] in
+            self?.updateUI()
+        }
     }
 
     private func makeSectionHeader(_ title: String) -> NSTextField {
@@ -790,7 +798,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             "app.launched",
             fields: [
                 "accessibility": ActionPerformer.hasAccessibilityPermission() ? "granted" : "denied",
-                "inputMonitoring": VibeKeyHIDManager.hasInputMonitoringAccess() ? "granted" : "denied",
+                "inputMonitoring": VibeKeyPermissionCenter.live.statusProvider(.inputMonitoring).rawValue,
                 "longConnectedMode": String(config.longConnectedMode)
             ]
         )
@@ -799,6 +807,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         setupHIDListeners()
         setupWorkspaceObservers()
         promptForAccessibilityIfMissing()
+        startLaunchPermissionRecoveryIfNeeded()
         startHIDWhenAuthorized()
     }
 
@@ -818,37 +827,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
-    private func startHIDWhenAuthorized(permissionAttempt: Int = 0, openRetryAttempt: Int = 0) {
+    private func inputMonitoringStatus() -> VibeKeyPermissionStatus {
+        VibeKeyPermissionCenter.live.statusProvider(.inputMonitoring)
+    }
+
+    private func startLaunchPermissionRecoveryIfNeeded() {
+        let missing = VibeKeyPermission.allCases.filter {
+            VibeKeyPermissionCenter.live.statusProvider($0) != .granted
+        }
+        guard !missing.isEmpty else { return }
+
+        VibeKeyHIDManager.shared.eventLogger?.log("permission.recovery.started", fields: [
+            "reason": "launch",
+            "missing": missing.map(\.rawValue).sorted().joined(separator: ",")
+        ])
+        settingsVC?.startPermissionFlow()
+    }
+
+    private func startHIDWhenAuthorized(openRetryAttempt: Int = 0) {
+        let status = inputMonitoringStatus()
+        VibeKeyHIDManager.shared.eventLogger?.log("hid.permission.preflight", fields: [
+            "attempt": String(openRetryAttempt),
+            "status": status.rawValue
+        ])
+
+        // TCC may hard-deny ListenEvent on first launch without presenting a
+        // prompt. The permission flow owns denied/undetermined recovery: it
+        // opens the exact pane and keeps polling until the state changes.
+        guard status == .granted else {
+            VibeKeyHIDManager.shared.eventLogger?.log("hid.permission.\(status.rawValue)", fields: [
+                "status": status.rawValue,
+                "recoveryOwner": "permissionCenter"
+            ])
+            return
+        }
+
         // Permission polling can call this repeatedly; keep one shared recovery
         // chain so open-failure retries cannot run in parallel.
         guard !isHIDRecoveryWaiting else { return }
         isHIDRecoveryWaiting = true
+        VibeKeyHIDManager.shared.start()
 
-        if VibeKeyHIDManager.hasInputMonitoringAccess() {
-            VibeKeyHIDManager.shared.start()
-            // TCC can report granted while the first device open is still denied
-            // after a replaced bundle. Limit retries so a persistent IOReturn
-            // cannot make the menu bar process rebuild HIDManager forever.
-            if !VibeKeyHIDManager.shared.isStarted, openRetryAttempt < 4 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-                    self?.isHIDRecoveryWaiting = false
-                    self?.startHIDWhenAuthorized(
-                        permissionAttempt: permissionAttempt,
-                        openRetryAttempt: openRetryAttempt + 1
-                    )
-                }
-            } else {
-                isHIDRecoveryWaiting = false
+        // TCC can report granted while the first device open is still denied
+        // after a replaced bundle. Limit retries so a persistent IOReturn
+        // cannot make the menu bar process rebuild HIDManager forever.
+        if !VibeKeyHIDManager.shared.isStarted, openRetryAttempt < 4 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                self?.isHIDRecoveryWaiting = false
+                self?.startHIDWhenAuthorized(openRetryAttempt: openRetryAttempt + 1)
             }
-            return
-        }
-
-        if permissionAttempt == 0 {
-            VibeKeyHIDManager.requestInputMonitoringAccess()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-            self?.isHIDRecoveryWaiting = false
-            self?.startHIDWhenAuthorized(permissionAttempt: permissionAttempt + 1)
+        } else {
+            isHIDRecoveryWaiting = false
         }
     }
 
@@ -871,12 +900,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         })
 
         workspaceObservers.append(center.addObserver(
+            forName: NSWorkspace.screensDidSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.logDisplayLifecycle("display.sleep")
+        })
+
+        workspaceObservers.append(center.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.logDisplayLifecycle("display.wake")
+        })
+
+        workspaceObservers.append(center.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
             queue: .main
         ) { _ in
             VibeKeyHIDManager.shared.hostDidWake()
         })
+    }
+
+    private func logDisplayLifecycle(_ event: String) {
+        let snapshot = currentSnapshot
+        VibeKeyHIDManager.shared.eventLogger?.log(event, fields: [
+            "battery": snapshot.battery.map { "\($0.percent)%\($0.isCharging ? "+charging" : "")" } ?? "unknown",
+            "connected": String(snapshot.isConnected),
+            "deviceOn": snapshot.isDeviceOn.map(String.init) ?? "unknown",
+            "hidPowerSaving": String(VibeKeyHIDManager.shared.isPowerSaving),
+            "processUptimeSeconds": String(
+                Int(Date().timeIntervalSince(vibeKeyProcessStartedAt))
+            )
+        ])
     }
 
     private func loadConfiguration() {
@@ -907,7 +965,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         item.button?.action = #selector(handleStatusItemClicked(_:))
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         self.statusItem = item
-        updateStatusItemDisplay()
+        // NSStatusItem is not yet through its initial layout pass; synchronous
+        // title/image mutation here triggers AppKit layout recursion warnings.
+        DispatchQueue.main.async { [weak self] in
+            self?.updateStatusItemDisplay()
+        }
     }
 
     private func setupPopover() {
@@ -980,6 +1042,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         pop.contentViewController = vc
         self.popover = pop
         self.settingsVC = vc
+
+        // Setting popover size immediately after installing a newly loaded
+        // content view can force layout during AppKit's initial layout pass.
+        DispatchQueue.main.async { [weak self] in
+            guard let popover = self?.popover else { return }
+            popover.contentSize = vc.preferredContentSize
+        }
     }
 
     @objc private func handleStatusItemClicked(_ sender: NSStatusBarButton) {

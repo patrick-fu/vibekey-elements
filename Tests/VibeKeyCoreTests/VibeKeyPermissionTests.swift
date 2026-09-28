@@ -133,3 +133,22 @@ final class VibeKeySinglePermissionTests: XCTestCase {
         XCTAssertTrue(opened.values.isEmpty)
     }
 }
+
+final class VibeKeyDeniedInputMonitoringTests: XCTestCase {
+    func testDeniedInputMonitoringPromptsAndOpensListenEventPane() {
+        let requested = PermissionRecorder<VibeKeyPermission>()
+        let opened = PermissionRecorder<URL>()
+        let center = VibeKeyPermissionCenter(
+            statusProvider: { $0 == .inputMonitoring ? .denied : .granted },
+            requestHandler: { requested.add($0) },
+            settingsOpener: { opened.add($0) }
+        )
+
+        let report = center.requestAndOpenSettings(.inputMonitoring)
+
+        XCTAssertEqual(requested.values, [.inputMonitoring])
+        XCTAssertEqual(opened.values, [VibeKeyPermission.inputMonitoring.settingsURL].compactMap { $0 })
+        XCTAssertEqual(report.status, .denied)
+        XCTAssertTrue(report.needsAttention)
+    }
+}

@@ -283,6 +283,10 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         let openStatus = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         guard openStatus == kIOReturnSuccess else {
             powerLogger.error("IOHIDManagerOpen failed (\(openStatus, privacy: .public)). Leaving HID manager stopped for retry.")
+            eventLogger?.log("hid.openFailed", fields: [
+                "status": String(openStatus),
+                "phase": "managerOpen"
+            ])
             IOHIDManagerRegisterDeviceMatchingCallback(manager, nil, nil)
             IOHIDManagerRegisterDeviceRemovalCallback(manager, nil, nil)
             IOHIDManagerUnscheduleFromRunLoop(
