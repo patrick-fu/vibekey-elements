@@ -30,6 +30,7 @@ It provides complete control over hardware lighting, audio noise reduction, stan
 - **Persistent Settings Panel**: Left-clicking the status bar item opens a native AppKit Popover that **stays open during option adjustments**, eliminating sudden window dismissals.
 - **Explicit Checkmark States**: Clear selection checkmarks for every input mapping, noise reduction level, and LED mode across both the popover and right-click context menu.
 - **Comprehensive Hardware Insights**: Live presentation of firmware version, hardware serial number (SN), exact battery percentage, voltage (mV), and dynamic charging indicator (⚡).
+- **Dongle-Aware Power State**: Shows when the wireless unit is powered off while the 2.4G receiver stays connected.
 - **Millisecond Key Flash**: Instant visual feedback in the menu bar (`[K1]`, `[◀]`, `[●]`, etc.) upon physical clicks or knob rotations.
 
 ### 3. AI Coding Agent Hardware Hooks
@@ -62,8 +63,15 @@ It provides complete control over hardware lighting, audio noise reduction, stan
 - **User Choice & Control**: Allows skipping versions, postponing reminders, or manual checking via "Check for Updates..." in the status bar context menu and settings panel.
 - **Cryptographic Security**: Enforces Ed25519 public key signature verification (`SUPublicEDKey`) for all binary downloads and feed items.
 
+### 9. Private On-Device Diagnostics
+- JSONL events are written to `~/Library/Logs/VibeKeyElements/events.jsonl` with `0600` permissions.
+- Events cover attach/remove, power/standby transitions, HID send failures, and triggered actions for repeatable troubleshooting.
+
 ### 8. Full-Featured `vibekey` CLI Suite
-- Manage all device capabilities directly from terminal scripts, Alfred/Raycast workflows, or automation daemons.
+- Manage hardware settings from terminal scripts, Alfred/Raycast workflows, or automation.
+- `status` reads and prints battery, firmware, serial number, standby/sleep timeouts, and microphone state.
+- `monitor` streams keys, knob turns, power notices, and query responses.
+- `config` prints the effective `~/.config/vibekey/config.json` without creating it.
 
 ---
 
@@ -117,8 +125,14 @@ log show --predicate 'subsystem == "com.patrickfu.vibekey" and category == "Powe
 The compiled CLI binary is located at `.build/release/vibekey`:
 
 ```bash
-# Check device status & query battery
+# Read live hardware status with a 2-second response timeout
 vibekey status
+
+# Stream keys, knob turns, and power notices
+vibekey monitor
+
+# Print the effective JSON configuration
+vibekey config
 
 # Set microphone hardware noise reduction to medium
 vibekey set-nr 2

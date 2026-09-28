@@ -1,5 +1,6 @@
 import Sparkle
 import AppKit
+import ApplicationServices
 import Foundation
 import VibeKeyCore
 
@@ -19,8 +20,10 @@ final class SettingsViewController: NSViewController {
     private let subtitleLabel = NSTextField(labelWithString: "优篮子 AU05 轻量原生控制器")
     private let statusLabel = NSTextField(labelWithString: "正在检测设备...")
     private let hardwareInfoLabel = NSTextField(labelWithString: "")
+    private let permissionLabel = NSTextField(labelWithString: "")
 
     private var popupButtons: [InputControl: NSPopUpButton] = [:]
+    private var customButtons: [InputControl: NSButton] = [:]
     private var isLocalPowerSaving: Bool { VibeKeyHIDManager.shared.isPowerSaving }
     private var nrPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private var micEnablePopup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -33,7 +36,7 @@ final class SettingsViewController: NSViewController {
         self.config = config
         self.currentSnapshot = snapshot
         super.init(nibName: nil, bundle: nil)
-        self.preferredContentSize = NSSize(width: 440, height: 660)
+        self.preferredContentSize = NSSize(width: 440, height: 676)
     }
 
     @available(*, unavailable)
@@ -42,7 +45,7 @@ final class SettingsViewController: NSViewController {
     }
 
     override func loadView() {
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 660))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 676))
 
         // 1. Header
         titleLabel.font = .systemFont(ofSize: 16, weight: .bold)
@@ -59,7 +62,8 @@ final class SettingsViewController: NSViewController {
         hardwareInfoLabel.maximumNumberOfLines = 2
         hardwareInfoLabel.lineBreakMode = .byWordWrapping
 
-        let headerStack = NSStackView(views: [titleLabel, subtitleLabel, statusLabel, hardwareInfoLabel])
+        permissionLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        let headerStack = NSStackView(views: [titleLabel, subtitleLabel, statusLabel, hardwareInfoLabel, permissionLabel])
         headerStack.orientation = .vertical
         headerStack.alignment = .leading
         headerStack.spacing = 3
@@ -205,10 +209,25 @@ final class SettingsViewController: NSViewController {
                 popup.menu?.addItem(item)
             }
 
+            // Preserve a visible, checked custom action instead of falsely showing None.
+            let customItem = NSMenuItem(title: "自定义动作", action: nil, keyEquivalent: "")
+            customItem.representedObject = "custom"
+            customItem.identifier = NSUserInterfaceItemIdentifier("vibekey.custom.\(control.rawValue)")
+            popup.menu?.addItem(customItem)
+
             popup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
             popup.heightAnchor.constraint(equalToConstant: 24).isActive = true
+            let customButton = NSButton(title: "自定义…", target: self, action: #selector(handleCustomMappingClicked(_:)))
+            customButton.bezelStyle = .rounded
+            customButton.font = .systemFont(ofSize: 11)
+            customButton.identifier = NSUserInterfaceItemIdentifier(control.rawValue)
+            customButtons[control] = customButton
             popupButtons[control] = popup
-            rows.append([label, popup])
+            let rowStack = NSStackView(views: [popup, customButton])
+            rowStack.orientation = .horizontal
+            rowStack.alignment = .centerY
+            rowStack.spacing = 6
+            rows.append([label, rowStack])
         }
 
         let grid = NSGridView(views: rows)
@@ -348,7 +367,13 @@ final class SettingsViewController: NSViewController {
             } else {
                 batteryText = " · 电量获取中..."
             }
-            if isLocalPowerSaving {
+            if currentSnapshot.isDeviceOn == false {
+                statusLabel.stringValue = "● 优篮子 AU05 (已连接 · 设备关机)"
+                statusLabel.textColor = .systemGray
+                let fw = currentSnapshot.firmwareVersion ?? "未知"
+                let sn = currentSnapshot.serialNumber ?? "未知"
+                hardwareInfoLabel.stringValue = "固件: \(fw)  |  SN: \(sn)  |  电量为最近缓存"
+            } else if isLocalPowerSaving {
                 statusLabel.stringValue = "● 优篮子 AU05 (待机省电中)\(batteryText)"
                 statusLabel.textColor = .systemOrange
                 let fw = currentSnapshot.firmwareVersion ?? "读取中"
@@ -373,17 +398,32 @@ final class SettingsViewController: NSViewController {
             hardwareInfoLabel.stringValue = "请插入 2.4G 接收器或通过 USB 连接"
         }
 
+        let accessibilityGranted = ActionPerformer.hasAccessibilityPermission()
+        permissionLabel.stringValue = accessibilityGranted
+            ? "● 辅助功能权限：已授权"
+            : "○ 辅助功能权限：未授权，快捷键映射不会生效"
+        permissionLabel.textColor = accessibilityGranted ? .systemGreen : .systemOrange
+
         // 1. Update mapping popup selections & checkmark states
         for (control, popup) in popupButtons {
             let action = config.action(for: control)
-            let matchingPreset = PresetAction.allCases.first(where: { $0.actionConfig == action }) ?? .none
+            let matchingPreset = PresetAction.allCases.first(where: { $0.actionConfig == action })
             for item in popup.itemArray {
                 if let preset = item.representedObject as? PresetAction {
-                    item.state = (preset == matchingPreset) ? .on : .off
+                    item.state = (matchingPreset == preset) ? .on : .off
                 }
             }
-            if let matchingItem = popup.itemArray.first(where: { ($0.representedObject as? PresetAction) == matchingPreset }) {
+            let customItem = popup.itemArray.first {
+                $0.identifier?.rawValue == "vibekey.custom.\(control.rawValue)"
+            }
+            if let matchingPreset,
+               let matchingItem = popup.itemArray.first(where: { ($0.representedObject as? PresetAction) == matchingPreset }) {
+                customItem?.state = .off
                 popup.select(matchingItem)
+            } else {
+                customItem?.title = "自定义: \(ActionConfigTextCodec.encode(action))"
+                customItem?.state = .on
+                popup.select(customItem)
             }
         }
 
@@ -434,10 +474,38 @@ final class SettingsViewController: NSViewController {
         }
     }
 
+    @objc private func handleCustomMappingClicked(_ sender: NSButton) {
+        guard let rawID = sender.identifier?.rawValue,
+              let control = InputControl(rawValue: rawID) else { return }
+        let alert = NSAlert()
+        alert.messageText = "自定义 \(control.displayName)"
+        alert.informativeText = "支持 ⌘ Backspace、Ctrl Alt Delete、F12、WheelUp/Down，或以 $ 开头的 Shell 命令。"
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        input.placeholderString = "⌘ Shift T 或 $ open -a Terminal"
+        input.stringValue = ActionConfigTextCodec.encode(config.action(for: control))
+        alert.accessoryView = input
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "取消")
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        do {
+            config.setAction(try ActionConfigTextCodec.parse(input.stringValue), for: control)
+            onConfigurationChanged?(config)
+            updateUI()
+        } catch {
+            let failure = NSAlert()
+            failure.messageText = "动作格式无效"
+            failure.informativeText = "请使用一个目标键加可选修饰键，或以 $ 开头的 Shell 命令。"
+            failure.runModal()
+        }
+    }
+
     @objc private func handleMappingSelectionChanged(_ sender: NSPopUpButton) {
         guard let rawId = sender.identifier?.rawValue,
-              let control = InputControl(rawValue: rawId),
-              let preset = sender.selectedItem?.representedObject as? PresetAction else {
+              let control = InputControl(rawValue: rawId) else { return }
+        guard let preset = sender.selectedItem?.representedObject as? PresetAction else {
+            // Selecting the display-only custom item must not replace the saved action.
+            updateUI()
             return
         }
 
@@ -532,10 +600,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
     func applicationDidFinishLaunching(_ notification: Notification) {
         self.updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: self)
         loadConfiguration()
+        VibeKeyHIDManager.shared.eventLogger = VibeKeyFileLogger()
+        VibeKeyHIDManager.shared.eventLogger?.log(
+            "app.launched",
+            fields: [
+                "accessibility": ActionPerformer.hasAccessibilityPermission() ? "granted" : "denied",
+                "longConnectedMode": String(config.longConnectedMode)
+            ]
+        )
         setupStatusItem()
         setupPopover()
         setupHIDListeners()
         setupWorkspaceObservers()
+        promptForAccessibilityIfMissing()
 
         startHIDWhenAuthorized()
     }
@@ -544,6 +621,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         workspaceObservers.removeAll()
         VibeKeyHIDManager.shared.stop()
+    }
+
+    private func promptForAccessibilityIfMissing() {
+        guard !ActionPerformer.hasAccessibilityPermission() else { return }
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
+    }
+
+    @objc private func openAccessibilitySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func startHIDWhenAuthorized(permissionAttempt: Int = 0, openRetryAttempt: Int = 0) {
@@ -599,19 +688,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
     }
 
     private func loadConfiguration() {
+        let fileConfiguration = try? VibeKeyConfigurationFile.load()
         let defaults = UserDefaults.standard
-        if let data = defaults.data(forKey: "VibeKeyElementsConfig"),
-           let saved = try? JSONDecoder().decode(VibeKeyConfiguration.self, from: data) {
+        if let saved = fileConfiguration,
+           let data = try? JSONEncoder().encode(saved),
+           let legacy = try? JSONDecoder().decode(VibeKeyConfiguration.self, from: data) {
+            config = legacy
+        } else if let data = defaults.data(forKey: "VibeKeyElementsConfig"),
+                  let saved = try? JSONDecoder().decode(VibeKeyConfiguration.self, from: data) {
             config = saved
-            VibeKeyHIDManager.shared.standbyTimeoutSeconds = TimeInterval(saved.standbySeconds)
-            VibeKeyHIDManager.shared.setLongConnectedMode(saved.longConnectedMode)
         }
+        VibeKeyHIDManager.shared.standbyTimeoutSeconds = TimeInterval(config.standbySeconds)
+        VibeKeyHIDManager.shared.setLongConnectedMode(config.longConnectedMode)
     }
 
     private func saveConfiguration() {
-        let defaults = UserDefaults.standard
+        try? VibeKeyConfigurationFile.save(config)
         if let data = try? JSONEncoder().encode(config) {
-            defaults.set(data, forKey: "VibeKeyElementsConfig")
+            UserDefaults.standard.set(data, forKey: "VibeKeyElementsConfig")
         }
     }
 
@@ -628,7 +722,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         let pop = NSPopover()
         pop.behavior = .transient
         pop.animates = true
-        pop.contentSize = NSSize(width: 440, height: 660)
+        pop.contentSize = NSSize(width: 440, height: 676)
 
         let vc = SettingsViewController(config: config, snapshot: currentSnapshot)
         vc.onConfigurationChanged = { [weak self] newConfig in
@@ -711,7 +805,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         let menu = NSMenu()
 
         // 1. Device Info Header
-        let statusTitle = currentSnapshot.isConnected ? "优篮子 AU05 (已连接)" : "优篮子 AU05 (离线)"
+        let statusTitle: String
+        if !currentSnapshot.isConnected {
+            statusTitle = "优篮子 AU05 (离线)"
+        } else if currentSnapshot.isDeviceOn == false {
+            statusTitle = "优篮子 AU05 (已连接 · 设备关机)"
+        } else {
+            statusTitle = "优篮子 AU05 (已连接)"
+        }
         let headerItem = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
         headerItem.isEnabled = false
         menu.addItem(headerItem)
@@ -737,6 +838,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
 
         // 2. Open Settings Window & Sparkle Updates
         menu.addItem(NSMenuItem(title: "打开控制面板…", action: #selector(handleOpenPopover), keyEquivalent: ","))
+        if !ActionPerformer.hasAccessibilityPermission() {
+            menu.addItem(NSMenuItem(title: "打开辅助功能设置…", action: #selector(openAccessibilitySettings), keyEquivalent: ""))
+        }
         let updateMenuItem = NSMenuItem(title: "检查更新…", action: #selector(handleCheckForUpdates), keyEquivalent: "")
         updateMenuItem.target = self
         menu.addItem(updateMenuItem)
@@ -938,6 +1042,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             return
         }
 
+        if currentSnapshot.isDeviceOn == false {
+            let attr = NSAttributedString(
+                string: " OFF",
+                attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: 12.0, weight: .bold),
+                    .foregroundColor: NSColor.systemGray
+                ]
+            )
+            button.attributedTitle = attr
+            button.toolTip = "优篮子 AU05 · 已连接 · 设备关机"
+            return
+        }
+
         if let battery = currentSnapshot.battery {
             let bolt = battery.isCharging ? " ⚡" : ""
             let standbyMarker = VibeKeyHIDManager.shared.isPowerSaving ? " 💤" : ""
@@ -1010,6 +1127,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             if phase == .down {
                 self.triggerKeyFlash(control.displayLabel)
                 let action = self.config.action(for: control)
+                VibeKeyHIDManager.shared.eventLogger?.log(
+                    "action.triggered",
+                    fields: ["control": control.rawValue]
+                )
                 ActionPerformer.perform(action)
             }
         }

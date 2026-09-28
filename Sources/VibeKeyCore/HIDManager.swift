@@ -59,6 +59,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
     public var onDeviceInfoUpdated: ((VibeKeyDeviceInfoSnapshot) -> Void)?
     public var onEventReceived: ((InputControl, ButtonPhase) -> Void)?
     public var onPowerSavingChanged: ((Bool) -> Void)?
+    public var eventLogger: VibeKeyFileLogger?
 
     private let ioQueue = DispatchQueue(label: "com.patrickfu.vibekey.hid.io", qos: .userInitiated)
 
@@ -341,6 +342,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         lastActivityTime = Date()
 
         powerLogger.info("VibeKey device attached (VID: \(VibeKeyDeviceInfo.vendorID, privacy: .public), PID: \(VibeKeyDeviceInfo.productID, privacy: .public)).")
+        eventLogger?.log("device.attached", fields: ["vendorID": String(VibeKeyDeviceInfo.vendorID), "productID": String(VibeKeyDeviceInfo.productID)])
         self.onDeviceConnected?()
         self.onDeviceInfoUpdated?(self.currentSnapshot)
 
@@ -387,6 +389,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         onlineGeneration &+= 1
         isPowerSaving = false
         currentSnapshot = VibeKeyDeviceInfoSnapshot(isConnected: false)
+        eventLogger?.log("device.removed")
         onDeviceDisconnected?()
         onDeviceInfoUpdated?(currentSnapshot)
     }
@@ -500,6 +503,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
     func applyDeviceNotice(_ notice: VibeKeyNotice) {
         switch notice {
         case let .standby(isStandby):
+            eventLogger?.log("device.standby", fields: ["standby": String(isStandby)])
             if isStandby {
                 // The AU05 emits standby notices while remaining HID-responsive in
                 // online mode. Only a local idle timeout or host sleep may release
@@ -516,19 +520,29 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
                 onDeviceInfoUpdated?(currentSnapshot)
             }
         case let .active(isActive):
+            eventLogger?.log("device.power", fields: ["on": String(isActive)])
             // AU05 emits rapid paired active/inactive notices around power-state
-            // transitions. Treat them as wake confirmations only after local
-            // standby handoff; otherwise they make the menu-bar state flicker.
-            guard isActive, isPowerSaving else {
-                powerLogger.debug("Ignoring non-wake device activity notice.")
+            // transitions. Receipt proves the dongle is attached even when the
+            // wireless device itself is off.
+            currentSnapshot.isConnected = true
+            currentSnapshot.isDeviceOn = isActive
+            onDeviceInfoUpdated?(currentSnapshot)
+            guard isActive else {
+                powerLogger.info("Device powered off; dongle remains connected.")
                 return
             }
             lastActivityTime = Date()
             powerLogger.info("Device active notice received.")
-            resumeFromPowerSaving(reason: "DeviceActiveNotice")
+            if isPowerSaving {
+                resumeFromPowerSaving(reason: "DeviceActiveNotice")
+            }
         case .powerOn:
+            eventLogger?.log("device.powerOn")
+            currentSnapshot.isConnected = true
+            currentSnapshot.isDeviceOn = true
             lastActivityTime = Date()
             powerLogger.info("Device powerOn notice received.")
+            onDeviceInfoUpdated?(currentSnapshot)
             resumeFromPowerSaving(reason: "DevicePowerOnNotice")
             refreshDeviceInfo()
         }
@@ -628,6 +642,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             buffer.count
         )
         guard status == kIOReturnSuccess else {
+            eventLogger?.log("hid.sendFailed", fields: ["status": String(status)])
             throw VibeKeyHIDError.setReportFailed(status)
         }
     }

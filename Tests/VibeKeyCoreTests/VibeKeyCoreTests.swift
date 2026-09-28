@@ -312,6 +312,30 @@ final class VibeKeyCoreTests: XCTestCase {
         XCTAssertFalse(manager.isPowerSaving)
     }
 
+    func testPowerOnClearsDevicePoweredOffState() {
+        let manager = VibeKeyHIDManager()
+        var snapshots: [Bool?] = []
+        manager.onDeviceInfoUpdated = { snapshots.append($0.isDeviceOn) }
+
+        manager.applyDeviceNotice(.active(isActive: false))
+        manager.applyDeviceNotice(.powerOn)
+
+        XCTAssertEqual(manager.currentSnapshot.isDeviceOn, true)
+        XCTAssertTrue(manager.currentSnapshot.isConnected)
+        XCTAssertEqual(snapshots.suffix(2), [false, true])
+    }
+
+    func testDeviceActiveFalseUpdatesPowerStateWithoutDisconnect() {
+        let manager = VibeKeyHIDManager()
+        manager.applyDeviceNotice(.active(isActive: false))
+        XCTAssertEqual(manager.currentSnapshot.isDeviceOn, false)
+        XCTAssertTrue(manager.currentSnapshot.isConnected)
+
+        manager.applyDeviceNotice(.active(isActive: true))
+        XCTAssertEqual(manager.currentSnapshot.isDeviceOn, true)
+        XCTAssertTrue(manager.currentSnapshot.isConnected)
+    }
+
     func testHostSleepOverridesIdleStandbyForLongConnect() {
         let manager = VibeKeyHIDManager()
         manager.enterPowerSaving(reason: "InactivityTimeout")

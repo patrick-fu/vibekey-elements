@@ -3,9 +3,21 @@ import IOKit
 import IOKit.hid
 import VibeKeyCore
 
+final class CLIInputContext {
+    let handler: ([UInt8], UInt32) -> Void
+    init(handler: @escaping ([UInt8], UInt32) -> Void) { self.handler = handler }
+}
+
+final class CLIReadbackBox {
+    var collector = VibeKeyReadbackCollector()
+}
+
 final class CLIDeviceSession {
     let manager: IOHIDManager
     let device: IOHIDDevice
+    private var inputBuffer: UnsafeMutablePointer<UInt8>?
+    private var inputCapacity = 64
+    private var inputContextRef: Unmanaged<CLIInputContext>?
 
     init?(manager: IOHIDManager, device: IOHIDDevice) {
         self.manager = manager
@@ -32,7 +44,59 @@ final class CLIDeviceSession {
             return nil
         }
 
+        IOHIDManagerScheduleWithRunLoop(
+            manager,
+            CFRunLoopGetMain(),
+            CFRunLoopMode.commonModes.rawValue
+        )
+        IOHIDDeviceScheduleWithRunLoop(
+            device,
+            CFRunLoopGetMain(),
+            CFRunLoopMode.commonModes.rawValue
+        )
+
         return CLIDeviceSession(manager: manager, device: device)
+    }
+
+    func beginInput(_ handler: @escaping ([UInt8], UInt32) -> Void) {
+        let capacity = 64
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)
+        buffer.initialize(repeating: 0, count: capacity)
+        let context = CLIInputContext(handler: handler)
+        inputContextRef = Unmanaged.passRetained(context)
+        let contextPointer = inputContextRef!.toOpaque()
+
+        let callback: IOHIDReportCallback = { rawContext, result, _, _, reportID, report, length in
+            guard result == kIOReturnSuccess, let rawContext = rawContext, length > 0 else { return }
+            let context = Unmanaged<CLIInputContext>.fromOpaque(rawContext).takeUnretainedValue()
+            context.handler([UInt8](UnsafeBufferPointer(start: report, count: length)), reportID)
+        }
+
+        IOHIDDeviceRegisterInputReportCallback(
+            device,
+            buffer,
+            capacity,
+            callback,
+            contextPointer
+        )
+        inputBuffer = buffer
+        inputCapacity = capacity
+    }
+
+    /// Runs the HID run loop until `condition` is true or the timeout expires.
+    @discardableResult
+    func waitForInput(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        return condition()
+    }
+
+    func runForever() {
+        while true {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+        }
     }
 
     func sendReport(_ reportBytes: [UInt8]) -> Bool {
@@ -48,6 +112,12 @@ final class CLIDeviceSession {
     }
 
     deinit {
+        if let buffer = inputBuffer {
+            IOHIDDeviceRegisterInputReportCallback(device, buffer, inputCapacity, nil, nil)
+            buffer.deinitialize(count: inputCapacity)
+            buffer.deallocate()
+        }
+        inputContextRef?.release()
         IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
     }
 }
@@ -62,7 +132,9 @@ struct CLIHelper {
           vibekey <command> [arguments]
 
         COMMANDS:
-          status                           Check hardware connection and send battery query
+          status                           Connect, read hardware status, and print it
+          config                           Print the JSON config path and configuration
+          monitor                          Stream keys, knobs, notices, and status responses
           set-nr <0-3>                     Set microphone hardware noise reduction level
           set-standby <seconds>            Set standby delay (e.g. 1800 for 30m, 0 for never)
           set-sleep <seconds>              Set deep sleep delay (e.g. 3600 for 1h)
@@ -98,20 +170,78 @@ case "help", "-h", "--help":
     CLIHelper.printUsage()
     exit(0)
 
+case "config":
+    let url = VibeKeyConfigurationFile.defaultURL
+    let configuration = (try? VibeKeyConfigurationFile.load()) ?? VibeKeyConfiguration()
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try encoder.encode(configuration)
+    print("Config file: \(url.path)\(FileManager.default.fileExists(atPath: url.path) ? "" : " (default, not created)")")
+    print(String(decoding: data, as: UTF8.self))
+
 case "status":
     print("🔍 Looking for Ulanzi AU05...")
     guard let session = CLIDeviceSession.open() else {
-        print("❌ Device not found or cannot be opened. Ensure VibeKey is connected via USB.")
+        print("❌ Device not found or cannot be opened. Ensure the dongle is connected and Input Monitoring is granted.")
         exit(1)
     }
-    print("✅ VibeKey connected! (VID: 0x\(String(VibeKeyDeviceInfo.vendorID, radix: 16)), PID: 0x\(String(VibeKeyDeviceInfo.productID, radix: 16)))")
-    if let report = try? VibeKeyPacketBuilder.powerQueryReport(commandID: 0x02) {
-        if session.sendReport(report) {
-            print("⚡ Battery status query report sent successfully.")
-        } else {
-            print("⚠️ Failed to transmit query report to device.")
+    print("✅ VibeKey dongle connected! (VID: 0x\(String(VibeKeyDeviceInfo.vendorID, radix: 16)), PID: 0x\(String(VibeKeyDeviceInfo.productID, radix: 16)))")
+
+    let box = CLIReadbackBox()
+    session.beginInput { bytes, reportID in
+        guard let plaintext = try? TEACodec.decryptInputReport(
+            bytes,
+            hasReportID: reportID == UInt32(VibeKeyDeviceInfo.reportID)
+        ) else { return }
+        if let observation = box.collector.ingest(plaintext: plaintext) {
+            print("↳ \(VibeKeyReadbackCollector.display(observation))")
         }
     }
+
+    let queries: [[UInt8]] = [
+        (try? VibeKeyPacketBuilder.powerQueryReport(commandID: 0x02)) ?? [],
+        (try? VibeKeyPacketBuilder.firmwareVersionQueryReport()) ?? [],
+        (try? VibeKeyPacketBuilder.serialNumberQueryReport()) ?? [],
+        (try? VibeKeyPacketBuilder.powerQueryReport(commandID: 0x2C)) ?? [],
+        (try? VibeKeyPacketBuilder.powerQueryReport(commandID: 0x42)) ?? [],
+        (try? VibeKeyPacketBuilder.noiseReductionQueryReport()) ?? [],
+        (try? VibeKeyPacketBuilder.microphoneEnableQueryReport()) ?? []
+    ].filter { !$0.isEmpty }
+    for query in queries where !box.collector.isQueryStatusComplete {
+        _ = session.sendReport(query)
+        usleep(25_000)
+    }
+
+    let complete = session.waitForInput(timeout: 2.0) { box.collector.isQueryStatusComplete }
+    print("\n\(box.collector.statusSummary())")
+    if !complete {
+        print("⚠️ Some fields did not answer before the 2s timeout.")
+    }
+
+case "monitor":
+    guard let session = CLIDeviceSession.open() else {
+        print("❌ Device not found or cannot be opened.")
+        exit(1)
+    }
+    print("👂 Monitoring VibeKey events. Press Control-C to stop.")
+    let box = CLIReadbackBox()
+    session.beginInput { bytes, reportID in
+        guard let plaintext = try? TEACodec.decryptInputReport(
+            bytes,
+            hasReportID: reportID == UInt32(VibeKeyDeviceInfo.reportID)
+        ), let observation = box.collector.ingest(plaintext: plaintext) else { return }
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        print("[\(timestamp)] \(VibeKeyReadbackCollector.display(observation))")
+    }
+    for report in [
+        try? VibeKeyPacketBuilder.powerQueryReport(commandID: 0x02),
+        try? VibeKeyPacketBuilder.firmwareVersionQueryReport(),
+        try? VibeKeyPacketBuilder.serialNumberQueryReport()
+    ].compactMap({ $0 }) {
+        _ = session.sendReport(report)
+        usleep(25_000)
+    }
+    session.runForever()
 
 case "set-nr":
     guard args.count > 2, let level = UInt8(args[2]), level <= 3 else {

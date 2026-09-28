@@ -75,6 +75,7 @@ public struct VibeKeyDeviceInfoSnapshot: Equatable, Sendable {
     public var standbyTimeSeconds: UInt32?
     public var sleepTimeSeconds: UInt32?
     public var isStandby: Bool
+    public var isDeviceOn: Bool?
     public var micNoiseReduction: UInt8?
     public var micEnabled: Bool?
     public var ledMode: LEDMode?
@@ -87,6 +88,7 @@ public struct VibeKeyDeviceInfoSnapshot: Equatable, Sendable {
         standbyTimeSeconds: UInt32? = nil,
         sleepTimeSeconds: UInt32? = nil,
         isStandby: Bool = false,
+        isDeviceOn: Bool? = nil,
         micNoiseReduction: UInt8? = nil,
         micEnabled: Bool? = nil,
         ledMode: LEDMode? = nil
@@ -98,6 +100,7 @@ public struct VibeKeyDeviceInfoSnapshot: Equatable, Sendable {
         self.standbyTimeSeconds = standbyTimeSeconds
         self.sleepTimeSeconds = sleepTimeSeconds
         self.isStandby = isStandby
+        self.isDeviceOn = isDeviceOn
         self.micNoiseReduction = micNoiseReduction
         self.micEnabled = micEnabled
         self.ledMode = ledMode

@@ -195,6 +195,52 @@ final class VibeKeyAblationTests: XCTestCase {
         )
     }
 
+    // MARK: - Ablation 4c: File Configuration & Human-Readable Mapping Codec
+
+    func testAblationConfigurationFileRoundTrip() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vibekey-config-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let url = directory.appendingPathComponent("config.json")
+        var config = VibeKeyConfiguration()
+        config.bottomButton = .shellCommand(command: "$ echo hello")
+        config.knobPress = .keySequence(keys: ["command", "f12"])
+        try VibeKeyConfigurationFile.save(config, to: url)
+        let loaded = try VibeKeyConfigurationFile.load(from: url)
+        XCTAssertEqual(loaded, config)
+        XCTAssertTrue(try String(contentsOf: url, encoding: .utf8).contains("\"shellCommand\""))
+    }
+
+    func testAblationHumanReadableActionCodec() throws {
+        XCTAssertEqual(
+            try ActionConfigTextCodec.parse("⌘ Backspace"),
+            .keySequence(keys: ["command", "delete"])
+        )
+        XCTAssertEqual(
+            try ActionConfigTextCodec.parse("Ctrl Alt Delete"),
+            .keySequence(keys: ["control", "option", "delete"])
+        )
+        XCTAssertEqual(
+            try ActionConfigTextCodec.parse("WheelDown"),
+            .mouseWheel(direction: .down)
+        )
+        XCTAssertEqual(
+            try ActionConfigTextCodec.parse("$ open -a Terminal"),
+            .shellCommand(command: "open -a Terminal")
+        )
+        XCTAssertEqual(
+            try ActionConfigTextCodec.parse("F12"),
+            .keySequence(keys: ["f12"])
+        )
+        XCTAssertEqual(
+            ActionConfigTextCodec.encode(.keySequence(keys: ["command", "f12"])),
+            "⌘ F12"
+        )
+        XCTAssertThrowsError(try ActionConfigTextCodec.parse("⌘⇧"))
+    }
+
     // MARK: - Ablation 5: Short & Truncated Packet Boundary Guards
 
     /// Destructive validation for response parser boundary checks:
@@ -363,7 +409,8 @@ final class VibeKeyAblationTests: XCTestCase {
         XCTAssertFalse(manager.isPowerSaving)
         XCTAssertFalse(manager.currentSnapshot.isStandby)
 
-        XCTAssertEqual(displayedStandbyStates, [true, false, true, false, true, false])
+        // Active notices now update device power state without changing local power saving.
+        XCTAssertEqual(displayedStandbyStates, [true, true, false, true, true, false, true, false])
         XCTAssertEqual(powerSavingTransitions, [true, false, true, false])
     }
 

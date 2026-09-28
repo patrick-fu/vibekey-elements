@@ -51,10 +51,21 @@ fi
 
 # 3. Ensure Notarization credentials are set
 echo "==> 正在配置 Apple 开发者与公证凭证..."
-echo -n "[REDACTED]" | gh secret set APPLE_ID -R "$REPO"
-echo -n "[REDACTED]" | gh secret set APPLE_APP_SPECIFIC_PASSWORD -R "$REPO"
-echo -n "9N7UKH59LC" | gh secret set APPLE_TEAM_ID -R "$REPO"
-echo -n "Developer ID Application: Patrick Fu (9N7UKH59LC)" | gh secret set APPLE_DEVELOPER_IDENTITY -R "$REPO"
+APPLE_ID="${APPLE_ID:-}"
+APPLE_APP_SPECIFIC_PASSWORD="${APPLE_APP_SPECIFIC_PASSWORD:-}"
+
+if [ -z "$APPLE_ID" ]; then
+  read -r -p "Apple ID email: " APPLE_ID
+fi
+if [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ]; then
+  read -rs -p "Apple App-Specific Password (input hidden): " APPLE_APP_SPECIFIC_PASSWORD
+  echo ""
+fi
+
+printf '%s' "$APPLE_ID" | gh secret set APPLE_ID -R "$REPO"
+printf '%s' "$APPLE_APP_SPECIFIC_PASSWORD" | gh secret set APPLE_APP_SPECIFIC_PASSWORD -R "$REPO"
+printf '%s' "${APPLE_TEAM_ID:-9N7UKH59LC}" | gh secret set APPLE_TEAM_ID -R "$REPO"
+printf '%s' "${APPLE_DEVELOPER_IDENTITY:-Developer ID Application: Patrick Fu (9N7UKH59LC)}" | gh secret set APPLE_DEVELOPER_IDENTITY -R "$REPO"
 
 echo ""
 echo "=================================================================="
