@@ -59,6 +59,8 @@ cat << 'PLIST' > "$bundle/Contents/Info.plist"
     <string>13.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>NSHIDUsageDescription</key>
+    <string>VibeKey Elements 需要输入监控来读取接收器上的按键、旋钮和设备事件。</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSHumanReadableCopyright</key>

@@ -12,6 +12,7 @@ final class SettingsViewController: NSViewController {
     var onRebootRequested: (() -> Void)?
     var onCheckUpdatesRequested: (() -> Void)?
     var onQuitRequested: (() -> Void)?
+    var onPermissionsUpdated: (([VibeKeyPermissionReport]) -> Void)?
 
     private var config: VibeKeyConfiguration
     private var currentSnapshot: VibeKeyDeviceInfoSnapshot
@@ -24,6 +25,12 @@ final class SettingsViewController: NSViewController {
 
     private var popupButtons: [InputControl: NSPopUpButton] = [:]
     private var customButtons: [InputControl: NSButton] = [:]
+    private var permissionStatusLabels: [VibeKeyPermission: NSTextField] = [:]
+    private var permissionButtons: [VibeKeyPermission: NSButton] = [:]
+    private var permissionRefreshTimers: [Timer] = []
+    private var permissionFlowStage: VibeKeyPermission?
+    private var activationObserver: NSObjectProtocol?
+    private let permissionCenter: VibeKeyPermissionCenter
     private var isLocalPowerSaving: Bool { VibeKeyHIDManager.shared.isPowerSaving }
     private var nrPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private var micEnablePopup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -32,11 +39,36 @@ final class SettingsViewController: NSViewController {
     private var sleepPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let longConnectCheckbox = NSButton(checkboxWithTitle: "长连保活（暂停闲置省电）", target: nil, action: nil)
 
-    init(config: VibeKeyConfiguration, snapshot: VibeKeyDeviceInfoSnapshot) {
+    init(
+        config: VibeKeyConfiguration,
+        snapshot: VibeKeyDeviceInfoSnapshot,
+        permissionCenter: VibeKeyPermissionCenter = VibeKeyPermissionCenter(
+            statusProvider: { VibeKeyPermissionCenter.live.statusProvider($0) },
+            requestHandler: { VibeKeyPermissionCenter.live.requestHandler($0) },
+            settingsOpener: { NSWorkspace.shared.open($0) }
+        )
+    ) {
         self.config = config
         self.currentSnapshot = snapshot
+        self.permissionCenter = permissionCenter
         super.init(nibName: nil, bundle: nil)
-        self.preferredContentSize = NSSize(width: 440, height: 676)
+        self.preferredContentSize = NSSize(width: 440, height: 736)
+
+        // Returning from System Settings activates this app; TCC has no callback.
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshPermissions()
+        }
+    }
+
+    deinit {
+        if let activationObserver {
+            NotificationCenter.default.removeObserver(activationObserver)
+        }
+        permissionRefreshTimers.forEach { $0.invalidate() }
     }
 
     @available(*, unavailable)
@@ -45,7 +77,7 @@ final class SettingsViewController: NSViewController {
     }
 
     override func loadView() {
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 676))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 736))
 
         // 1. Header
         titleLabel.font = .systemFont(ofSize: 16, weight: .bold)
@@ -68,15 +100,30 @@ final class SettingsViewController: NSViewController {
         headerStack.alignment = .leading
         headerStack.spacing = 3
 
-        // 2. Mapping Section
+        // 2. System Permission Section
+        let permissionHeading = makeSectionHeader("系统授权检测")
+        let checkPermissionButton = NSButton(
+            title: "一键检测并授权…",
+            target: self,
+            action: #selector(handleCheckAllPermissionsClicked)
+        )
+        checkPermissionButton.bezelStyle = .rounded
+        checkPermissionButton.font = .systemFont(ofSize: 11)
+        let permissionHeadingStack = NSStackView(views: [permissionHeading, NSView(), checkPermissionButton])
+        permissionHeadingStack.orientation = .horizontal
+        permissionHeadingStack.alignment = .centerY
+        permissionHeadingStack.spacing = 8
+        let permissionGrid = makePermissionGrid()
+
+        // 3. Mapping Section
         let mappingHeading = makeSectionHeader("按键与旋钮映射")
         let mappingGrid = makeMappingGrid()
 
-        // 3. Hardware Settings Section
+        // 4. Hardware Settings Section
         let hardwareHeading = makeSectionHeader("硬件功能调节")
         let hardwareGrid = makeHardwareGrid()
 
-        // 4. Hardware Maintenance Section
+        // 5. Hardware Maintenance Section
         let maintenanceHeading = makeSectionHeader("硬件维护与复位")
         let resetKeysBtn = NSButton(title: "恢复默认按键", target: self, action: #selector(handleResetKeysClicked))
         resetKeysBtn.bezelStyle = .rounded
@@ -95,7 +142,7 @@ final class SettingsViewController: NSViewController {
         maintenanceStack.alignment = .centerY
         maintenanceStack.spacing = 8
 
-        // 5. Action Buttons
+        // 6. Action Buttons
         let refreshBtn = NSButton(title: "刷新信息", target: self, action: #selector(handleRefreshClicked))
         refreshBtn.bezelStyle = .rounded
         refreshBtn.font = .systemFont(ofSize: 11)
@@ -121,6 +168,8 @@ final class SettingsViewController: NSViewController {
 
         let mainStack = NSStackView(views: [
             headerStack,
+            permissionHeadingStack,
+            permissionGrid,
             sep1,
             mappingHeading,
             mappingGrid,
@@ -141,6 +190,8 @@ final class SettingsViewController: NSViewController {
 
         // Compression resistance
         headerStack.setContentCompressionResistancePriority(.required, for: .vertical)
+        permissionHeadingStack.setContentCompressionResistancePriority(.required, for: .vertical)
+        permissionGrid.setContentCompressionResistancePriority(.required, for: .vertical)
         mappingGrid.setContentCompressionResistancePriority(.required, for: .vertical)
         hardwareGrid.setContentCompressionResistancePriority(.required, for: .vertical)
         maintenanceStack.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -152,6 +203,8 @@ final class SettingsViewController: NSViewController {
             mainStack.topAnchor.constraint(equalTo: root.topAnchor, constant: 14),
             mainStack.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -14),
             headerStack.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
+            permissionHeadingStack.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
+            permissionGrid.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
             sep1.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
             mappingHeading.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
             mappingGrid.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
@@ -174,6 +227,40 @@ final class SettingsViewController: NSViewController {
         label.font = .systemFont(ofSize: 11, weight: .bold)
         label.textColor = .secondaryLabelColor
         return label
+    }
+
+    private func makePermissionGrid() -> NSGridView {
+        var rows: [[NSView]] = []
+        for permission in VibeKeyPermission.allCases {
+            let nameLabel = NSTextField(labelWithString: permission.displayName)
+            nameLabel.font = .systemFont(ofSize: 12, weight: .medium)
+
+            let statusLabel = NSTextField(labelWithString: "检测中")
+            statusLabel.font = .systemFont(ofSize: 11, weight: .medium)
+            statusLabel.toolTip = permission.usageDescription
+
+            let actionButton = NSButton(
+                title: "检测并授权…",
+                target: self,
+                action: #selector(handlePermissionActionClicked(_:))
+            )
+            actionButton.bezelStyle = .rounded
+            actionButton.font = .systemFont(ofSize: 11)
+            permissionButtons[permission] = actionButton
+            actionButton.toolTip = permission.usageDescription
+            actionButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 110).isActive = true
+
+            permissionStatusLabels[permission] = statusLabel
+            rows.append([nameLabel, statusLabel, actionButton])
+        }
+
+        let grid = NSGridView(views: rows)
+        grid.rowSpacing = 5
+        grid.columnSpacing = 12
+        grid.column(at: 0).xPlacement = .leading
+        grid.column(at: 1).xPlacement = .leading
+        grid.column(at: 2).xPlacement = .trailing
+        return grid
     }
 
     private func makeSeparator() -> NSBox {
@@ -398,11 +485,9 @@ final class SettingsViewController: NSViewController {
             hardwareInfoLabel.stringValue = "请插入 2.4G 接收器或通过 USB 连接"
         }
 
-        let accessibilityGranted = ActionPerformer.hasAccessibilityPermission()
-        permissionLabel.stringValue = accessibilityGranted
-            ? "● 辅助功能权限：已授权"
-            : "○ 辅助功能权限：未授权，快捷键映射不会生效"
-        permissionLabel.textColor = accessibilityGranted ? .systemGreen : .systemOrange
+        // Permission rows are refreshed separately; the header gives an aggregate status.
+        let reports = permissionCenter.check()
+        applyPermissionReports(reports, notifyObserver: false)
 
         // 1. Update mapping popup selections & checkmark states
         for (control, popup) in popupButtons {
@@ -561,6 +646,105 @@ final class SettingsViewController: NSViewController {
         updateUI()
     }
 
+    @objc private func handleCheckAllPermissionsClicked() {
+        startPermissionFlow()
+    }
+
+    @objc private func handlePermissionActionClicked(_ sender: NSButton) {
+        guard let permission = permissionButtons.first(where: { $0.value == sender })?.key else { return }
+
+        if permissionCenter.statusProvider(permission) == .granted {
+            permissionCenter.openSettings(for: permission)
+        } else {
+            _ = permissionCenter.requestAndOpenSettings(permission)
+        }
+        applyPermissionReports(permissionCenter.check(), notifyObserver: true)
+        schedulePermissionRefresh()
+    }
+
+    func startPermissionFlow() {
+        let reports = permissionCenter.check()
+        guard let firstMissing = reports.first(where: \.needsAttention)?.permission else {
+            permissionFlowStage = nil
+            applyPermissionReports(reports, notifyObserver: true)
+            return
+        }
+
+        permissionFlowStage = firstMissing
+        _ = permissionCenter.requestAndOpenSettings(firstMissing)
+        applyPermissionReports(permissionCenter.check(), notifyObserver: true)
+        schedulePermissionRefresh()
+    }
+
+    func refreshPermissions() {
+        advancePermissionFlowIfNeeded()
+        applyPermissionReports(permissionCenter.check(), notifyObserver: true)
+        if permissionFlowStage != nil {
+            schedulePermissionRefresh()
+        }
+    }
+
+    private func applyPermissionReports(_ reports: [VibeKeyPermissionReport], notifyObserver: Bool) {
+        for report in reports {
+            guard let label = permissionStatusLabels[report.permission],
+                  let button = permissionButtons[report.permission] else { continue }
+
+            label.stringValue = "● \(report.statusTitle)"
+            label.textColor = report.status == .granted ? .systemGreen : .systemOrange
+            button.title = report.status == .granted ? "打开设置…" : "检测并授权…"
+            button.toolTip = report.status == .granted
+                ? "打开\(report.permission.displayName)设置面板"
+                : "\(report.permission.usageDescription)；点击后打开\(report.permission.displayName)设置面板"
+        }
+
+        let missing = reports.filter(\.needsAttention)
+        guard Set(reports.map(\.permission)) == Set(VibeKeyPermission.allCases) else { return }
+
+        permissionLabel.stringValue = missing.isEmpty
+            ? "● 系统权限：全部已授权"
+            : "○ 系统权限：\(missing.map(\.permission.displayName).joined(separator: "、"))待授权"
+        permissionLabel.textColor = missing.isEmpty ? .systemGreen : .systemOrange
+
+        if notifyObserver {
+            onPermissionsUpdated?(reports)
+        }
+    }
+
+    private func schedulePermissionRefresh() {
+        permissionRefreshTimers.forEach { $0.invalidate() }
+        permissionRefreshTimers.removeAll()
+
+        // TCC does not provide a callback; brief polling picks up approval
+        // without keeping the popover closed or restarting the app.
+        for delay in [0.5, 1.5, 3.0, 6.0, 12.0, 24.0, 48.0] {
+            permissionRefreshTimers.append(Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+                guard let self else { return }
+                self.advancePermissionFlowIfNeeded()
+                let reports = self.permissionCenter.check()
+                self.applyPermissionReports(reports, notifyObserver: true)
+                if self.permissionFlowStage != nil {
+                    self.schedulePermissionRefresh()
+                }
+            })
+        }
+    }
+
+    private func advancePermissionFlowIfNeeded() {
+        guard let stage = permissionFlowStage else { return }
+        guard permissionCenter.statusProvider(stage) == .granted else { return }
+
+        let nextMissing = VibeKeyPermission.allCases.first { permission in
+            permission != stage && permissionCenter.statusProvider(permission) != .granted
+        }
+
+        if let nextMissing {
+            permissionFlowStage = nextMissing
+            _ = permissionCenter.requestAndOpenSettings(nextMissing)
+        } else {
+            permissionFlowStage = nil
+        }
+    }
+
     @objc private func handleResetKeysClicked() {
         onResetKeysRequested?()
     }
@@ -593,6 +777,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
     private var settingsVC: SettingsViewController?
     private var flashTimer: Timer?
     private var workspaceObservers: [NSObjectProtocol] = []
+    private var isHIDRecoveryWaiting = false
 
     private var config = VibeKeyConfiguration()
     private var currentSnapshot = VibeKeyDeviceInfoSnapshot()
@@ -605,6 +790,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             "app.launched",
             fields: [
                 "accessibility": ActionPerformer.hasAccessibilityPermission() ? "granted" : "denied",
+                "inputMonitoring": VibeKeyHIDManager.hasInputMonitoringAccess() ? "granted" : "denied",
                 "longConnectedMode": String(config.longConnectedMode)
             ]
         )
@@ -612,8 +798,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         setupPopover()
         setupHIDListeners()
         setupWorkspaceObservers()
-        promptForAccessibilityIfMissing()
-
         startHIDWhenAuthorized()
     }
 
@@ -623,19 +807,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         VibeKeyHIDManager.shared.stop()
     }
 
-    private func promptForAccessibilityIfMissing() {
-        guard !ActionPerformer.hasAccessibilityPermission() else { return }
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
-    }
-
-    @objc private func openAccessibilitySettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
+    @objc private func runPermissionCheckFromMenu() {
+        settingsVC?.startPermissionFlow()
     }
 
     private func startHIDWhenAuthorized(permissionAttempt: Int = 0, openRetryAttempt: Int = 0) {
+        // Permission polling can call this repeatedly; keep one shared recovery
+        // chain so open-failure retries cannot run in parallel.
+        guard !isHIDRecoveryWaiting else { return }
+        isHIDRecoveryWaiting = true
+
         if VibeKeyHIDManager.hasInputMonitoringAccess() {
             VibeKeyHIDManager.shared.start()
             // TCC can report granted while the first device open is still denied
@@ -643,11 +824,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             // cannot make the menu bar process rebuild HIDManager forever.
             if !VibeKeyHIDManager.shared.isStarted, openRetryAttempt < 4 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                    self?.isHIDRecoveryWaiting = false
                     self?.startHIDWhenAuthorized(
                         permissionAttempt: permissionAttempt,
                         openRetryAttempt: openRetryAttempt + 1
                     )
                 }
+            } else {
+                isHIDRecoveryWaiting = false
             }
             return
         }
@@ -656,6 +840,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             VibeKeyHIDManager.requestInputMonitoringAccess()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.isHIDRecoveryWaiting = false
             self?.startHIDWhenAuthorized(permissionAttempt: permissionAttempt + 1)
         }
     }
@@ -722,7 +907,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         let pop = NSPopover()
         pop.behavior = .transient
         pop.animates = true
-        pop.contentSize = NSSize(width: 440, height: 676)
+        pop.contentSize = NSSize(width: 440, height: 736)
 
         let vc = SettingsViewController(config: config, snapshot: currentSnapshot)
         vc.onConfigurationChanged = { [weak self] newConfig in
@@ -765,6 +950,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         }
         vc.onRebootRequested = {
             VibeKeyHIDManager.shared.rebootDevice()
+        }
+        vc.onPermissionsUpdated = { [weak self] reports in
+            guard let self else { return }
+            let fields = Dictionary(uniqueKeysWithValues: reports.map {
+                ($0.permission.rawValue, $0.status.rawValue)
+            })
+            VibeKeyHIDManager.shared.eventLogger?.log("permissions.updated", fields: fields)
+            if reports.allSatisfy({ $0.status == .granted }) {
+                self.startHIDWhenAuthorized()
+            }
         }
         vc.onCheckUpdatesRequested = { [weak self] in
             guard let self = self else { return }
@@ -838,9 +1033,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
 
         // 2. Open Settings Window & Sparkle Updates
         menu.addItem(NSMenuItem(title: "打开控制面板…", action: #selector(handleOpenPopover), keyEquivalent: ","))
-        if !ActionPerformer.hasAccessibilityPermission() {
-            menu.addItem(NSMenuItem(title: "打开辅助功能设置…", action: #selector(openAccessibilitySettings), keyEquivalent: ""))
-        }
+        let permissionItem = NSMenuItem(title: "授权检测…", action: #selector(runPermissionCheckFromMenu), keyEquivalent: "")
+        permissionItem.target = self
+        menu.addItem(permissionItem)
         let updateMenuItem = NSMenuItem(title: "检查更新…", action: #selector(handleCheckForUpdates), keyEquivalent: "")
         updateMenuItem.target = self
         menu.addItem(updateMenuItem)

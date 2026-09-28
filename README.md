@@ -32,6 +32,7 @@ It provides complete control over hardware lighting, audio noise reduction, stan
 - **Comprehensive Hardware Insights**: Live presentation of firmware version, hardware serial number (SN), exact battery percentage, voltage (mV), and dynamic charging indicator (⚡).
 - **Dongle-Aware Power State**: Shows when the wireless unit is powered off while the 2.4G receiver stays connected.
 - **Millisecond Key Flash**: Instant visual feedback in the menu bar (`[K1]`, `[◀]`, `[●]`, etc.) upon physical clicks or knob rotations.
+- **One-Click Permission Check**: Verifies the two permissions the app actually needs—Input Monitoring and Accessibility—and walks through each missing permission with a system prompt and its matching System Settings pane. Status refreshes during approval, then HID recovery starts automatically.
 
 ### 3. AI Coding Agent Hardware Hooks
 - **Physical Agent Status Monitor**: Synchronize your desktop dial with AI coding agents (such as Codex, Claude Code, or local developer pipelines) via command line or API.
