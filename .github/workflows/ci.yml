@@ -34,6 +34,7 @@ jobs:
       contents: write
     env:
       KEYCHAIN_PATH: ""
+      IS_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
       HAS_SIGNING_SECRETS: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' }}
       HAS_NOTARY_SECRETS: ${{ (secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '') || (secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_KEY_BASE64 != '') }}
       HAS_SPARKLE_SECRET: ${{ secrets.SPARKLE_ED_PRIVATE_KEY != '' }}
@@ -43,6 +44,27 @@ jobs:
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Require Release Signing Secrets
+        if: env.IS_RELEASE_TAG == 'true'
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_DEVELOPER_IDENTITY: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for key in             APPLE_CERTIFICATE_P12_BASE64             APPLE_CERTIFICATE_PASSWORD             APPLE_DEVELOPER_IDENTITY             APPLE_ID             APPLE_APP_SPECIFIC_PASSWORD             APPLE_TEAM_ID             SPARKLE_ED_PRIVATE_KEY; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Required release secret is not set: $key"
+              missing=1
+            fi
+          done
+          exit "$missing"
 
       # Step 1: Optional Setup Keychain for Apple Developer ID Signing
       - name: Install Apple Certificate (if secrets provided)
@@ -101,7 +123,7 @@ jobs:
 
       # Step 4: Notarize DMG with Apple notarytool (if secrets provided)
       - name: Notarize DMG (App-Specific Password or API Key)
-        if: env.HAS_NOTARY_SECRETS == 'true' && env.KEYCHAIN_PATH != ''
+        if: env.IS_RELEASE_TAG == 'true' || (env.HAS_NOTARY_SECRETS == 'true' && env.KEYCHAIN_PATH != '')
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -154,25 +176,40 @@ jobs:
 
       # Step 6.5: Update Sparkle Appcast on Tag Release (if secrets provided)
       - name: Update Sparkle Appcast
-        if: startsWith(github.ref, 'refs/tags/v') && env.HAS_SPARKLE_SECRET == 'true'
+        if: env.IS_RELEASE_TAG == 'true'
         env:
           SPARKLE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
+          set -euo pipefail
           echo "==> Updating appcast.xml with Sparkle release signature..."
-          TAG_NAME="${GITHUB_REF#refs/tags/}"
-          GENERATE_APPCAST="$(find .build -name generate_appcast | head -n 1)"
-          if [ -n "$GENERATE_APPCAST" ] && [ -x "$GENERATE_APPCAST" ]; then
-            echo "$SPARKLE_KEY" | "$GENERATE_APPCAST" \
-              --ed-key-file - \
-              --download-url-prefix "https://github.com/patrick-fu/vibekey-elements/releases/download/${TAG_NAME}/" \
-              -o appcast.xml \
-              dist/
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add appcast.xml
-            git diff-index --quiet HEAD || git commit -m "Update Sparkle appcast for ${TAG_NAME}"
-            git push origin HEAD:main || true
+          if [ -z "$SPARKLE_KEY" ]; then
+            echo "::error::SPARKLE_ED_PRIVATE_KEY is required for a tag release"
+            exit 1
           fi
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG_NAME#v}"
+          GENERATE_APPCAST="$(find .build -name generate_appcast | head -n 1)"
+          if [ -z "$GENERATE_APPCAST" ] || [ ! -x "$GENERATE_APPCAST" ]; then
+            echo "::error::generate_appcast was not built by the Sparkle dependency"
+            exit 1
+          fi
+          echo "$SPARKLE_KEY" | "$GENERATE_APPCAST" \
+            --ed-key-file - \
+            --download-url-prefix "https://github.com/patrick-fu/vibekey-elements/releases/download/${TAG_NAME}/" \
+            -o appcast.xml \
+            dist/
+          grep -q "<sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>" appcast.xml
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add appcast.xml
+          if git diff --cached --quiet -- appcast.xml; then
+            echo "::error::Tag release did not produce a new appcast entry for ${VERSION}"
+            exit 1
+          fi
+          git commit -m "Update Sparkle appcast for ${TAG_NAME}"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
 
       # Step 7: Create GitHub Release on Tag
       - name: Create GitHub Release
