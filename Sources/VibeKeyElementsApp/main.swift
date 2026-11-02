@@ -14,6 +14,95 @@ private let vibeKeyProcessStartedAt = Date()
 private let permissionProbeInterval: TimeInterval = 60
 private let permissionRelaunchCooldown: TimeInterval = 60
 
+private final class ShortcutRecorderField: NSButton {
+    private var recordingBuffer = ShortcutRecordingBuffer()
+    private(set) var recordedAction: ActionConfig?
+    var onRecorded: ((ActionConfig) -> Void)?
+    private(set) var isRecording = false
+
+    init(displayText: String) {
+        super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 28))
+        bezelStyle = .rounded
+        setButtonType(.momentaryPushIn)
+        font = .monospacedSystemFont(ofSize: 12, weight: .medium)
+        title = displayText
+        lineBreakMode = .byTruncatingMiddle
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        if isRecording {
+            stopRecording(message: "已取消录制")
+        } else {
+            startRecording()
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if !isRecording { startRecording() }
+        let flags = CGEventFlags(rawValue: UInt64(event.modifierFlags.rawValue))
+        if event.keyCode == 0x35, ShortcutRecordingBuffer.modifiers(from: flags).isEmpty {
+            stopRecording(message: "已取消录制")
+            return
+        }
+        complete(with: recordingBuffer.record(
+            keyCode: CGKeyCode(event.keyCode),
+            flags: flags
+        ))
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        let flags = CGEventFlags(rawValue: UInt64(event.modifierFlags.rawValue))
+        if !isRecording {
+            guard !ShortcutRecordingBuffer.modifiers(from: flags).isEmpty else { return }
+            startRecording()
+        }
+
+        if let shortcut = recordingBuffer.recordModifierChange(flags: flags) {
+            complete(with: shortcut)
+        } else {
+            updateTitle(recordingBuffer.partialDisplay.isEmpty ? "按下组合键…" : recordingBuffer.partialDisplay)
+        }
+    }
+
+    private func startRecording() {
+        recordingBuffer = ShortcutRecordingBuffer()
+        isRecording = true
+        updateTitle("按下组合键…")
+    }
+
+    private func stopRecording(message: String) {
+        recordingBuffer = ShortcutRecordingBuffer()
+        isRecording = false
+        updateTitle(message)
+    }
+
+    private func complete(with shortcut: RecordedShortcut?) {
+        guard let shortcut else {
+            updateTitle("该按键暂不支持")
+            return
+        }
+
+        recordedAction = shortcut.actionConfig
+        recordingBuffer = ShortcutRecordingBuffer()
+        isRecording = false
+        updateTitle(shortcut.display)
+        onRecorded?(shortcut.actionConfig)
+    }
+
+    private func updateTitle(_ text: String) {
+        title = text
+        needsDisplay = true
+    }
+}
+
 final class SettingsViewController: NSViewController {
     var onConfigurationChanged: ((VibeKeyConfiguration) -> Void)?
     var onRefreshRequested: (() -> Void)?
@@ -578,16 +667,29 @@ final class SettingsViewController: NSViewController {
     @objc private func handleCustomMappingClicked(_ sender: NSButton) {
         guard let rawID = sender.identifier?.rawValue,
               let control = InputControl(rawValue: rawID) else { return }
+        let encoded = ActionConfigTextCodec.encode(config.action(for: control))
         let alert = NSAlert()
         alert.messageText = "自定义 \(control.displayName)"
-        alert.informativeText = "支持 ⌘ Backspace、Ctrl Alt Delete、F12、WheelUp/Down，或以 $ 开头的 Shell 命令。"
+        alert.informativeText = "点击上方录制框，然后按下组合键。下方也可输入 WheelUp/Down 或 $ 开头的 Shell 命令。"
+
+        let recorder = ShortcutRecorderField(displayText: encoded)
         let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
-        input.placeholderString = "⌘ Shift T 或 $ open -a Terminal"
-        input.stringValue = ActionConfigTextCodec.encode(config.action(for: control))
-        alert.accessoryView = input
+        input.placeholderString = "⌘ Shift T、WheelUp 或 $ open -a Terminal"
+        input.stringValue = encoded
+        recorder.onRecorded = { [weak input] action in
+            input?.stringValue = ActionConfigTextCodec.encode(action)
+        }
+
+        let accessory = NSStackView(views: [recorder, input])
+        accessory.orientation = .vertical
+        accessory.alignment = .leading
+        accessory.spacing = 8
+        accessory.frame = NSRect(x: 0, y: 0, width: 320, height: 60)
+        alert.accessoryView = accessory
         alert.addButton(withTitle: "保存")
         alert.addButton(withTitle: "取消")
         NSApplication.shared.activate(ignoringOtherApps: true)
+        alert.window.initialFirstResponder = recorder
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         do {
             config.setAction(try ActionConfigTextCodec.parse(input.stringValue), for: control)
