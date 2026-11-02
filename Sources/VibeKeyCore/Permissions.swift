@@ -96,7 +96,10 @@ public struct VibeKeyPermissionCenter: Sendable {
                     }
                     return .denied
                 case .accessibility:
-                    return AXIsProcessTrusted() ? .granted : .denied
+                    let options = [
+                        kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false
+                    ] as CFDictionary
+                    return AXIsProcessTrustedWithOptions(options) ? .granted : .denied
                 }
             },
             requestHandler: { permission in

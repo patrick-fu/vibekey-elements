@@ -6,7 +6,10 @@ public enum ActionPerformer {
     private static let actionQueue = DispatchQueue(label: "com.patrickfu.vibekey.action", qos: .userInteractive)
 
     public static func hasAccessibilityPermission() -> Bool {
-        AXIsProcessTrusted()
+        let options = [
+            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false
+        ] as CFDictionary
+        return AXIsProcessTrustedWithOptions(options)
     }
 
     public static func perform(_ action: ActionConfig) {

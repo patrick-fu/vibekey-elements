@@ -4,7 +4,15 @@ import ApplicationServices
 import Foundation
 import VibeKeyCore
 
+if let resultPath = VibeKeyPermissionProbe.resultPath(from: Array(CommandLine.arguments.dropFirst())) {
+    let reports = VibeKeyPermissionCenter.live.check()
+    exit(VibeKeyPermissionProbe.write(reports, to: resultPath) ? EXIT_SUCCESS : EXIT_FAILURE)
+}
+
 private let vibeKeyProcessStartedAt = Date()
+
+private let permissionProbeInterval: TimeInterval = 60
+private let permissionRelaunchCooldown: TimeInterval = 60
 
 final class SettingsViewController: NSViewController {
     var onConfigurationChanged: ((VibeKeyConfiguration) -> Void)?
@@ -786,6 +794,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
     private var flashTimer: Timer?
     private var workspaceObservers: [NSObjectProtocol] = []
     private var isHIDRecoveryWaiting = false
+    private var permissionProbeTimer: Timer?
+    private var isPermissionProbeInFlight = false
+    private let permissionProbeStateLock = NSLock()
+    private let permissionProbeQueue = DispatchQueue(label: "com.patrickfu.vibekey.permission-probe", qos: .utility)
+    private let permissionRelaunchTimestampKey = "lastPermissionRelaunchTimestamp"
 
     private var config = VibeKeyConfiguration()
     private var currentSnapshot = VibeKeyDeviceInfoSnapshot()
@@ -809,6 +822,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         promptForAccessibilityIfMissing()
         startLaunchPermissionRecoveryIfNeeded()
         startHIDWhenAuthorized()
+        updatePermissionProbeTimer()
+        probeForFreshPermissionsIfNeeded()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -842,6 +857,137 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             "missing": missing.map(\.rawValue).sorted().joined(separator: ",")
         ])
         settingsVC?.startPermissionFlow()
+    }
+
+    private func currentPermissionStatuses() -> [VibeKeyPermission: VibeKeyPermissionStatus] {
+        Dictionary(uniqueKeysWithValues: VibeKeyPermissionCenter.live.check().map {
+            ($0.permission, $0.status)
+        })
+    }
+
+    private func updatePermissionProbeTimer() {
+        let missing = VibeKeyPermissionCenter.live.check().contains { $0.needsAttention }
+        if !missing {
+            permissionProbeTimer?.invalidate()
+            permissionProbeTimer = nil
+            UserDefaults.standard.removeObject(forKey: permissionRelaunchTimestampKey)
+            return
+        }
+        guard permissionProbeTimer == nil else { return }
+
+        permissionProbeTimer = Timer.scheduledTimer(
+            withTimeInterval: permissionProbeInterval,
+            repeats: true
+        ) { [weak self] _ in
+            self?.probeForFreshPermissionsIfNeeded()
+        }
+    }
+
+    private func probeForFreshPermissionsIfNeeded() {
+        let current = currentPermissionStatuses()
+        guard current.values.contains(where: { $0 != .granted }) else {
+            updatePermissionProbeTimer()
+            return
+        }
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+        let lastRelaunch = UserDefaults.standard.double(forKey: permissionRelaunchTimestampKey)
+        let elapsed = Date().timeIntervalSince1970 - lastRelaunch
+        guard elapsed >= permissionRelaunchCooldown else { return }
+
+        let bundleURL = Bundle.main.bundleURL
+        let resultURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vibekey-permission-probe-\(UUID().uuidString).json")
+        try? FileManager.default.removeItem(at: resultURL)
+        permissionProbeStateLock.lock()
+        guard !isPermissionProbeInFlight else {
+            permissionProbeStateLock.unlock()
+            return
+        }
+        isPermissionProbeInFlight = true
+        permissionProbeStateLock.unlock()
+
+        VibeKeyHIDManager.shared.eventLogger?.log("permission.probe.started", fields: [
+            "current": current.sorted { $0.key.rawValue < $1.key.rawValue }
+                .map { "\($0.key.rawValue)=\($0.value.rawValue)" }.joined(separator: ",")
+        ])
+
+        permissionProbeQueue.async { [weak self] in
+            guard let self else { return }
+            defer {
+                try? FileManager.default.removeItem(at: resultURL)
+                self.permissionProbeStateLock.lock()
+                self.isPermissionProbeInFlight = false
+                self.permissionProbeStateLock.unlock()
+            }
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            process.arguments = [
+                "-g",
+                "-n",
+                bundleURL.path,
+                "--args",
+                VibeKeyPermissionProbe.argument,
+                resultURL.path
+            ]
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                VibeKeyHIDManager.shared.eventLogger?.log("permission.probe.failed", fields: [
+                    "stage": "launch",
+                    "error": error.localizedDescription
+                ])
+                return
+            }
+
+            guard process.terminationStatus == EXIT_SUCCESS,
+                  let data = try? Data(contentsOf: resultURL),
+                  let fresh = VibeKeyPermissionProbe.decoded(data) else {
+                VibeKeyHIDManager.shared.eventLogger?.log("permission.probe.failed", fields: [
+                    "stage": "result",
+                    "exit": String(process.terminationStatus)
+                ])
+                return
+            }
+
+            let newlyGranted = VibeKeyPermissionProbe.newlyGranted(current: current, fresh: fresh)
+            VibeKeyHIDManager.shared.eventLogger?.log("permission.probe.result", fields: [
+                "fresh": fresh.sorted { $0.key.rawValue < $1.key.rawValue }
+                    .map { "\($0.key.rawValue)=\($0.value.rawValue)" }.joined(separator: ","),
+                "newlyGranted": newlyGranted.map(\.rawValue).sorted().joined(separator: ",")
+            ])
+            guard !newlyGranted.isEmpty else { return }
+
+            UserDefaults.standard.set(
+                Date().timeIntervalSince1970,
+                forKey: self.permissionRelaunchTimestampKey
+            )
+            DispatchQueue.main.async {
+                self.relaunchForFreshPermissions(permissions: newlyGranted)
+            }
+        }
+    }
+
+    private func relaunchForFreshPermissions(permissions: [VibeKeyPermission]) {
+        VibeKeyHIDManager.shared.eventLogger?.log("permission.relaunch.started", fields: [
+            "permissions": permissions.map(\.rawValue).sorted().joined(separator: ",")
+        ])
+
+        do {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            process.arguments = ["-n", Bundle.main.bundleURL.path]
+            try process.run()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                NSApplication.shared.terminate(nil)
+            }
+        } catch {
+            VibeKeyHIDManager.shared.eventLogger?.log("permission.relaunch.failed", fields: [
+                "error": error.localizedDescription
+            ])
+        }
     }
 
     private func startHIDWhenAuthorized(openRetryAttempt: Int = 0) {
@@ -1029,6 +1175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             if reports.allSatisfy({ $0.status == .granted }) {
                 self.startHIDWhenAuthorized()
             }
+            self.updatePermissionProbeTimer()
         }
         vc.onCheckUpdatesRequested = { [weak self] in
             guard let self = self else { return }
