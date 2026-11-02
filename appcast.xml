@@ -15,7 +15,7 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
             <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/patrick-fu/vibekey-elements/releases/download/v1.2.0/VibeKey-Elements-macOS-arm64.dmg" length="1816586" type="application/octet-stream" sparkle:edSignature="gpmOTZZLovRKn+XA5/GpJM+6O9/La2M6vNu2OU6Vbrv+6luEHprb4peIfxfkLOPLKXpRr+NPRhoNqW9RSx2jDg=="/>
+            <enclosure url="https://github.com/patrick-fu/vibekey-elements/releases/download/v1.2.0/VibeKey-Elements-macOS-arm64.dmg" length="1853269" type="application/octet-stream" sparkle:edSignature="qAX+Wf/bOAK0bGpPI5igY2HPRyuiVTwNEss7++OFkfQBoYcGH3l2jlm6HqY5ugAXSwSHUTNR65OgvQhuKwJgCg=="/>
         </item>
         <item>
             <title>1.1.2</title>
@@ -38,6 +38,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: 91Xl5IlmoHHhllqyMvd5G4QzjeXmBEOXn46hPzlDuz3UpPLWiTSGtPFSNLorVTQOqjNfWEQ4WB1d16wd3XgnAg==
+edSignature: AiYYmm2tbNeCIj24hmNBM2k/NQDfeALSVb/K0P39zr5hHbkqbN9TB8q67HGvV2aoSWFjBlHomM8AiSxouYzKDw==
 length: 2800
 -->
