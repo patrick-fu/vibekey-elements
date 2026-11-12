@@ -248,6 +248,12 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
     public var knobLeft: ActionConfig
     public var knobRight: ActionConfig
     public var knobPress: ActionConfig
+    /// Optional long-press actions; nil means long-press is disabled and the
+    /// short-press action fires immediately on key-down (legacy behavior).
+    public var topButtonLongPress: ActionConfig?
+    public var middleButtonLongPress: ActionConfig?
+    public var bottomButtonLongPress: ActionConfig?
+    public var knobPressLongPress: ActionConfig?
     public var micNoiseReduction: UInt8
     public var micEnabled: Bool
     public var ledMode: LEDMode
@@ -267,7 +273,11 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
         ledMode: LEDMode = .auto,
         standbySeconds: UInt32 = 300,
         sleepSeconds: UInt32 = 3600,
-        longConnectedMode: Bool = false
+        longConnectedMode: Bool = false,
+        topButtonLongPress: ActionConfig? = nil,
+        middleButtonLongPress: ActionConfig? = nil,
+        bottomButtonLongPress: ActionConfig? = nil,
+        knobPressLongPress: ActionConfig? = nil
     ) {
         self.topButton = topButton
         self.middleButton = middleButton
@@ -281,12 +291,17 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
         self.standbySeconds = standbySeconds
         self.sleepSeconds = sleepSeconds
         self.longConnectedMode = longConnectedMode
+        self.topButtonLongPress = topButtonLongPress
+        self.middleButtonLongPress = middleButtonLongPress
+        self.bottomButtonLongPress = bottomButtonLongPress
+        self.knobPressLongPress = knobPressLongPress
     }
 
     enum CodingKeys: String, CodingKey {
         case topButton, middleButton, bottomButton, knobLeft, knobRight, knobPress
         case micNoiseReduction, micEnabled, ledMode, standbySeconds, sleepSeconds
         case longConnectedMode
+        case topButtonLongPress, middleButtonLongPress, bottomButtonLongPress, knobPressLongPress
     }
 
     public init(from decoder: Decoder) throws {
@@ -303,6 +318,10 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
         self.standbySeconds = try container.decodeIfPresent(UInt32.self, forKey: .standbySeconds) ?? 300
         self.sleepSeconds = try container.decodeIfPresent(UInt32.self, forKey: .sleepSeconds) ?? 3600
         self.longConnectedMode = try container.decodeIfPresent(Bool.self, forKey: .longConnectedMode) ?? false
+        self.topButtonLongPress = try container.decodeIfPresent(ActionConfig.self, forKey: .topButtonLongPress)
+        self.middleButtonLongPress = try container.decodeIfPresent(ActionConfig.self, forKey: .middleButtonLongPress)
+        self.bottomButtonLongPress = try container.decodeIfPresent(ActionConfig.self, forKey: .bottomButtonLongPress)
+        self.knobPressLongPress = try container.decodeIfPresent(ActionConfig.self, forKey: .knobPressLongPress)
     }
 
     public func action(for control: InputControl) -> ActionConfig {
@@ -313,6 +332,27 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
         case .knobLeft: return knobLeft
         case .knobRight: return knobRight
         case .knobPress: return knobPress
+        }
+    }
+
+    /// Long-press action for a control; nil for knob rotation or when disabled.
+    public func longPressAction(for control: InputControl) -> ActionConfig? {
+        switch control {
+        case .topButton: return topButtonLongPress
+        case .middleButton: return middleButtonLongPress
+        case .bottomButton: return bottomButtonLongPress
+        case .knobPress: return knobPressLongPress
+        case .knobLeft, .knobRight: return nil
+        }
+    }
+
+    public mutating func setLongPressAction(_ action: ActionConfig?, for control: InputControl) {
+        switch control {
+        case .topButton: topButtonLongPress = action
+        case .middleButton: middleButtonLongPress = action
+        case .bottomButton: bottomButtonLongPress = action
+        case .knobPress: knobPressLongPress = action
+        case .knobLeft, .knobRight: break
         }
     }
 

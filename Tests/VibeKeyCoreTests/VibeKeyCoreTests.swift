@@ -172,12 +172,17 @@ final class VibeKeyCoreTests: XCTestCase {
             bottomButton: .keySequence(keys: ["command", "delete"]),
             knobLeft: .mouseWheel(direction: .down),
             knobRight: .mouseWheel(direction: .up),
-            knobPress: .keySequence(keys: ["option", "command", "a"])
+            knobPress: .keySequence(keys: ["option", "command", "a"]),
+            topButtonLongPress: .shellCommand(command: "open -a Terminal"),
+            knobPressLongPress: .keySequence(keys: ["control", "up"])
         )
 
         let data = try JSONEncoder().encode(config)
         let decoded = try JSONDecoder().decode(VibeKeyConfiguration.self, from: data)
         XCTAssertEqual(config, decoded)
+        XCTAssertEqual(decoded.longPressAction(for: .topButton), .shellCommand(command: "open -a Terminal"))
+        XCTAssertEqual(decoded.longPressAction(for: .knobPress), .keySequence(keys: ["control", "up"]))
+        XCTAssertNil(decoded.longPressAction(for: .knobLeft))
     }
 
     // MARK: - 7. Firmware Version, SN Chunks & Device Notices
