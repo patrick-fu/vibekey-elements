@@ -124,6 +124,8 @@ final class SettingsViewController: NSViewController {
 
     private var popupButtons: [InputControl: NSPopUpButton] = [:]
     private var customButtons: [InputControl: NSButton] = [:]
+    private var longPopupButtons: [InputControl: NSPopUpButton] = [:]
+    private var longCustomButtons: [InputControl: NSButton] = [:]
     private var permissionStatusLabels: [VibeKeyPermission: NSTextField] = [:]
     private var permissionButtons: [VibeKeyPermission: NSButton] = [:]
     private var permissionRefreshTimers: [Timer] = []
@@ -385,6 +387,20 @@ final class SettingsViewController: NSViewController {
         ]
 
         var rows: [[NSView]] = []
+        let headerLabel = NSTextField(labelWithString: "按键")
+        headerLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        headerLabel.textColor = .secondaryLabelColor
+        let shortHeader = NSTextField(labelWithString: "短按")
+        shortHeader.font = .systemFont(ofSize: 11, weight: .semibold)
+        shortHeader.textColor = .secondaryLabelColor
+        let longHeader = NSTextField(labelWithString: "长按 (按住 0.2 秒)")
+        longHeader.font = .systemFont(ofSize: 11, weight: .semibold)
+        longHeader.textColor = .secondaryLabelColor
+        rows.append([headerLabel, shortHeader, longHeader])
+
+        // Controls that support a distinct long-press action via key-down/key-up pairing.
+        let longPressControls: Set<InputControl> = [.topButton, .middleButton, .bottomButton, .knobPress]
+
         for control in controls {
             let label = NSTextField(labelWithString: control.displayName)
             label.font = .systemFont(ofSize: 12, weight: .medium)
@@ -419,7 +435,45 @@ final class SettingsViewController: NSViewController {
             rowStack.orientation = .horizontal
             rowStack.alignment = .centerY
             rowStack.spacing = 6
-            rows.append([label, rowStack])
+
+            var longView: NSView = NSTextField(labelWithString: "")
+            if longPressControls.contains(control) {
+                let longPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+                longPopup.font = .systemFont(ofSize: 12)
+                longPopup.identifier = NSUserInterfaceItemIdentifier("vibekey.long.\(control.rawValue)")
+                longPopup.target = self
+                longPopup.action = #selector(handleMappingSelectionChanged(_:))
+
+                let noneItem = NSMenuItem(title: "无（禁用长按）", action: nil, keyEquivalent: "")
+                noneItem.representedObject = "none"
+                longPopup.menu?.addItem(noneItem)
+
+                for preset in PresetAction.allCases {
+                    let item = NSMenuItem(title: preset.displayName, action: nil, keyEquivalent: "")
+                    item.representedObject = preset
+                    longPopup.menu?.addItem(item)
+                }
+
+                let longCustomItem = NSMenuItem(title: "自定义动作", action: nil, keyEquivalent: "")
+                longCustomItem.representedObject = "custom"
+                longCustomItem.identifier = NSUserInterfaceItemIdentifier("vibekey.long.custom.\(control.rawValue)")
+                longPopup.menu?.addItem(longCustomItem)
+
+                longPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+                longPopup.heightAnchor.constraint(equalToConstant: 24).isActive = true
+                let longCustomButton = NSButton(title: "自定义…", target: self, action: #selector(handleCustomMappingClicked(_:)))
+                longCustomButton.bezelStyle = .rounded
+                longCustomButton.font = .systemFont(ofSize: 11)
+                longCustomButton.identifier = NSUserInterfaceItemIdentifier("vibekey.long.\(control.rawValue)")
+                longCustomButtons[control] = longCustomButton
+                longPopupButtons[control] = longPopup
+                let longStack = NSStackView(views: [longPopup, longCustomButton])
+                longStack.orientation = .horizontal
+                longStack.alignment = .centerY
+                longStack.spacing = 6
+                longView = longStack
+            }
+            rows.append([label, rowStack, longView])
         }
 
         let grid = NSGridView(views: rows)
@@ -427,6 +481,7 @@ final class SettingsViewController: NSViewController {
         grid.columnSpacing = 16
         grid.column(at: 0).xPlacement = .leading
         grid.column(at: 1).xPlacement = .fill
+        grid.column(at: 2).xPlacement = .fill
         return grid
     }
 
@@ -617,6 +672,37 @@ final class SettingsViewController: NSViewController {
             }
         }
 
+        // 1b. Update long-press mapping popup selections
+        for (control, popup) in longPopupButtons {
+            let customItem = popup.itemArray.first {
+                $0.identifier?.rawValue == "vibekey.long.custom.\(control.rawValue)"
+            }
+            guard let action = config.longPressAction(for: control) else {
+                if let noneItem = popup.itemArray.first(where: { ($0.representedObject as? String) == "none" }) {
+                    for item in popup.itemArray { item.state = .off }
+                    noneItem.state = .on
+                    popup.select(noneItem)
+                }
+                continue
+            }
+            let matchingPreset = PresetAction.allCases.first(where: { $0.actionConfig == action })
+            for item in popup.itemArray {
+                if let preset = item.representedObject as? PresetAction {
+                    item.state = (matchingPreset == preset) ? .on : .off
+                } else {
+                    item.state = .off
+                }
+            }
+            if let matchingPreset,
+               let matchingItem = popup.itemArray.first(where: { ($0.representedObject as? PresetAction) == matchingPreset }) {
+                popup.select(matchingItem)
+            } else {
+                customItem?.title = "自定义: \(ActionConfigTextCodec.encode(action))"
+                customItem?.state = .on
+                popup.select(customItem)
+            }
+        }
+
         // 2. Update NR popup
         for item in nrPopup.itemArray {
             item.state = (UInt8(item.tag) == config.micNoiseReduction) ? .on : .off
@@ -665,11 +751,16 @@ final class SettingsViewController: NSViewController {
     }
 
     @objc private func handleCustomMappingClicked(_ sender: NSButton) {
-        guard let rawID = sender.identifier?.rawValue,
-              let control = InputControl(rawValue: rawID) else { return }
-        let encoded = ActionConfigTextCodec.encode(config.action(for: control))
+        guard let rawID = sender.identifier?.rawValue else { return }
+        let isLongPress = rawID.hasPrefix("vibekey.long.")
+        let controlRaw = isLongPress ? String(rawID.dropFirst("vibekey.long.".count)) : rawID
+        guard let control = InputControl(rawValue: controlRaw) else { return }
+        let currentAction = isLongPress
+            ? (config.longPressAction(for: control) ?? .keySequence(keys: []))
+            : config.action(for: control)
+        let encoded = ActionConfigTextCodec.encode(currentAction)
         let alert = NSAlert()
-        alert.messageText = "自定义 \(control.displayName)"
+        alert.messageText = "自定义 \(control.displayName)\(isLongPress ? "（长按）" : "")"
         alert.informativeText = "点击上方录制框，然后按下组合键。下方也可输入 WheelUp/Down 或 $ 开头的 Shell 命令。"
 
         let recorder = ShortcutRecorderField(displayText: encoded)
@@ -688,11 +779,26 @@ final class SettingsViewController: NSViewController {
         alert.accessoryView = accessory
         alert.addButton(withTitle: "保存")
         alert.addButton(withTitle: "取消")
+        if isLongPress {
+            alert.addButton(withTitle: "清除长按")
+        }
         NSApplication.shared.activate(ignoringOtherApps: true)
         alert.window.initialFirstResponder = recorder
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let response = alert.runModal()
+        if isLongPress, response == .alertThirdButtonReturn {
+            config.setLongPressAction(nil, for: control)
+            onConfigurationChanged?(config)
+            updateUI()
+            return
+        }
+        guard response == .alertFirstButtonReturn else { return }
         do {
-            config.setAction(try ActionConfigTextCodec.parse(input.stringValue), for: control)
+            let action = try ActionConfigTextCodec.parse(input.stringValue)
+            if isLongPress {
+                config.setLongPressAction(action, for: control)
+            } else {
+                config.setAction(action, for: control)
+            }
             onConfigurationChanged?(config)
             updateUI()
         } catch {
@@ -704,15 +810,25 @@ final class SettingsViewController: NSViewController {
     }
 
     @objc private func handleMappingSelectionChanged(_ sender: NSPopUpButton) {
-        guard let rawId = sender.identifier?.rawValue,
-              let control = InputControl(rawValue: rawId) else { return }
+        guard let rawId = sender.identifier?.rawValue else { return }
+        let isLongPress = rawId.hasPrefix("vibekey.long.")
+        let controlRaw = isLongPress ? String(rawId.dropFirst("vibekey.long.".count)) : rawId
+        guard let control = InputControl(rawValue: controlRaw) else { return }
         guard let preset = sender.selectedItem?.representedObject as? PresetAction else {
+            if isLongPress, (sender.selectedItem?.representedObject as? String) == "none" {
+                config.setLongPressAction(nil, for: control)
+                onConfigurationChanged?(config)
+            }
             // Selecting the display-only custom item must not replace the saved action.
             updateUI()
             return
         }
 
-        config.setAction(preset.actionConfig, for: control)
+        if isLongPress {
+            config.setLongPressAction(preset.actionConfig, for: control)
+        } else {
+            config.setAction(preset.actionConfig, for: control)
+        }
         onConfigurationChanged?(config)
         updateUI()
     }
@@ -1644,16 +1760,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
 
         VibeKeyHIDManager.shared.onEventReceived = { [weak self] control, phase in
             guard let self = self else { return }
-            if phase == .down {
-                self.triggerKeyFlash(control.displayLabel)
-                let action = self.config.action(for: control)
-                VibeKeyHIDManager.shared.eventLogger?.log(
-                    "action.triggered",
-                    fields: ["control": control.rawValue]
-                )
-                ActionPerformer.perform(action)
-            }
+            self.handlePhysicalInput(control: control, phase: phase)
         }
+    }
+
+    /// Long-press discrimination window in seconds. Key-up inside the window is a
+    /// short press; holding past it fires the long-press action immediately.
+    private let longPressThreshold: TimeInterval = 0.2
+    private var pendingLongPressControl: InputControl?
+    private var pendingLongPressTimer: Timer?
+    /// Set when a holdable long-press action is currently held down; released on key-up.
+    private var heldLongPress: (control: InputControl, action: ActionConfig)?
+
+    private func handlePhysicalInput(control: InputControl, phase: ButtonPhase) {
+        // Knob rotation has no key-up pairing; fire immediately as before.
+        guard let longPressAction = config.longPressAction(for: control) else {
+            guard phase == .down else { return }
+            fireAction(config.action(for: control), control: control, longPress: false)
+            return
+        }
+
+        switch phase {
+        case .down:
+            // A stray second down (e.g. missed up) cancels any pending timer first.
+            cancelPendingLongPress()
+            pendingLongPressControl = control
+            let timer = Timer(timeInterval: longPressThreshold, repeats: false) { [weak self] _ in
+                guard let self = self,
+                      self.pendingLongPressControl == control else { return }
+                self.pendingLongPressControl = nil
+                self.pendingLongPressTimer = nil
+                // Single-key actions (e.g. fn, modifiers) stay pressed until
+                // the physical key is released instead of being tapped.
+                if ActionPerformer.supportsHold(longPressAction) {
+                    self.triggerKeyFlash("\(control.displayLabel)长")
+                    VibeKeyHIDManager.shared.eventLogger?.log(
+                        "action.triggered",
+                        fields: ["control": control.rawValue, "longPress": "true", "hold": "true"]
+                    )
+                    ActionPerformer.beginHold(longPressAction)
+                    self.heldLongPress = (control, longPressAction)
+                } else {
+                    self.fireAction(longPressAction, control: control, longPress: true)
+                }
+            }
+            pendingLongPressTimer = timer
+            RunLoop.main.add(timer, forMode: .default)
+        case .up:
+            if let held = heldLongPress, held.control == control {
+                heldLongPress = nil
+                ActionPerformer.endHold(held.action)
+                return
+            }
+            guard pendingLongPressControl == control else { return }
+            cancelPendingLongPress()
+            fireAction(config.action(for: control), control: control, longPress: false)
+        }
+    }
+
+    private func cancelPendingLongPress() {
+        pendingLongPressTimer?.invalidate()
+        pendingLongPressTimer = nil
+        pendingLongPressControl = nil
+    }
+
+    private func fireAction(_ action: ActionConfig, control: InputControl, longPress: Bool) {
+        triggerKeyFlash(longPress ? "\(control.displayLabel)长" : control.displayLabel)
+        VibeKeyHIDManager.shared.eventLogger?.log(
+            "action.triggered",
+            fields: ["control": control.rawValue, "longPress": longPress ? "true" : "false"]
+        )
+        ActionPerformer.perform(action)
     }
 
     @objc private func handleQuit() {
