@@ -9,6 +9,15 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <description>VibeKey Elements updates for Ulanzi AU05</description>
         <language>zh-CN</language>
         <item>
+            <title>1.3.0</title>
+            <pubDate>Thu, 26 Nov 2026 17:53:16 +0000</pubDate>
+            <sparkle:version>7</sparkle:version>
+            <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/patrick-fu/vibekey-elements/releases/download/v1.3.0/VibeKey-Elements-macOS-arm64.dmg" length="2016641" type="application/octet-stream" sparkle:edSignature="JRxh4jZzHF1BDVZwFOrBknyxYLyHqvcqlCREu+pBlPSLyE1qcnUxaom3EdVEIeAmQ2IrqzrRnH6oH+m117aMCQ=="/>
+        </item>
+        <item>
             <title>1.2.0</title>
             <pubDate>Mon, 02 Nov 2026 21:47:57 +0800</pubDate>
             <sparkle:version>6</sparkle:version>
@@ -26,18 +35,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/patrick-fu/vibekey-elements/releases/download/v1.1.2/VibeKey-Elements-macOS-arm64.dmg" length="1837510" type="application/octet-stream" sparkle:edSignature="5RNbPTi1+u9jUefRKBSbhFXMlix3FQHue1yTbdbM7G3CxVE+YjF2nI7MyJQhbTeDzMi1dz65ELKhGR63rmrwDg=="/>
         </item>
-        <item>
-            <title>1.1.1</title>
-            <pubDate>Mon, 28 Sep 2026 11:50:27 +0000</pubDate>
-            <sparkle:version>4</sparkle:version>
-            <sparkle:shortVersionString>1.1.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/patrick-fu/vibekey-elements/releases/download/v1.1.1/VibeKey-Elements-macOS-arm64.dmg" length="1805790" type="application/octet-stream" sparkle:edSignature="k8pA8QMLC5hRZfBLstJD/w6d7D/o79BrIG/T2fjRpAPzPWIHV4SqK59e4J6BFncWYg5uFe4/4/yr0v6JLIBKCw=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: AiYYmm2tbNeCIj24hmNBM2k/NQDfeALSVb/K0P39zr5hHbkqbN9TB8q67HGvV2aoSWFjBlHomM8AiSxouYzKDw==
+edSignature: p0M9eYELz9BDPYwu4AR7Sml4azsJ1nuLc74jMh4JKJNolfFnkR2HZ2BQwN9m6V0MT8ipryWPHo3/Y08tROxTCQ==
 length: 2800
 -->
