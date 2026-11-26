@@ -10,22 +10,22 @@ public enum VibeKeyPermission: String, CaseIterable, Equatable, Sendable {
     public var displayName: String {
         switch self {
         case .inputMonitoring:
-            return "输入监控"
+            return tr(.permissionInputMonitoring)
         case .accessibility:
-            return "辅助功能"
+            return tr(.permissionAccessibility)
         }
     }
 
     public var settingsTitle: String {
-        "\(displayName)设置…"
+        tr(.permissionSettingsTitle, displayName)
     }
 
     public var usageDescription: String {
         switch self {
         case .inputMonitoring:
-            return "读取 VibeKey 按键、旋钮和设备事件"
+            return tr(.permissionInputMonitoringUsage)
         case .accessibility:
-            return "把 VibeKey 动作转换为系统按键"
+            return tr(.permissionAccessibilityUsage)
         }
     }
 
@@ -58,11 +58,11 @@ public struct VibeKeyPermissionReport: Equatable, Sendable {
     public var statusTitle: String {
         switch status {
         case .granted:
-            return "已授权"
+            return tr(.permissionGranted)
         case .denied:
-            return "未授权"
+            return tr(.permissionDenied)
         case .undetermined:
-            return "待授权"
+            return tr(.permissionUndetermined)
         }
     }
 }

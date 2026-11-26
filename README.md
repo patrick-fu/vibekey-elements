@@ -158,6 +158,13 @@ vibekey hook idle
 open .build/release/VibeKeyElements
 ```
 
+### 🌐 Language
+
+The app and CLI are available in **English**, **French** and **Simplified Chinese**. The language follows your macOS preferred languages (English is the fallback). To pick another one:
+
+- **Per app**: System Settings → General → Language & Region → Applications → add *VibeKey Elements*.
+- **For one launch**: `VIBEKEY_LANG=fr ".build/release/VibeKey Elements.app/Contents/MacOS/VibeKeyElements"` (also works with `vibekey`).
+
 ---
 
 ## 🛠 Architecture

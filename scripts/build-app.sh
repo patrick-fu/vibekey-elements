@@ -41,6 +41,14 @@ cat << 'PLIST' > "$bundle/Contents/Info.plist"
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>fr</string>
+        <string>zh-Hans</string>
+    </array>
     <key>CFBundleExecutable</key>
     <string>VibeKeyElements</string>
     <key>CFBundleIdentifier</key>
@@ -60,7 +68,7 @@ cat << 'PLIST' > "$bundle/Contents/Info.plist"
     <key>LSUIElement</key>
     <true/>
     <key>NSHIDUsageDescription</key>
-    <string>VibeKey Elements 需要输入监控来读取接收器上的按键、旋钮和设备事件。</string>
+    <string>VibeKey Elements needs Input Monitoring to read button, knob and device events from the receiver.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSHumanReadableCopyright</key>
@@ -78,6 +86,17 @@ cat << 'PLIST' > "$bundle/Contents/Info.plist"
 </dict>
 </plist>
 PLIST
+
+# Per-language Info.plist strings. The .lproj folders also let macOS offer the
+# app in System Settings > Language & Region > Applications and localize Sparkle.
+write_infoplist_strings() {
+  local lang="$1" hid_usage="$2"
+  mkdir -p "$bundle/Contents/Resources/$lang.lproj"
+  printf '"NSHIDUsageDescription" = "%s";\n' "$hid_usage" > "$bundle/Contents/Resources/$lang.lproj/InfoPlist.strings"
+}
+write_infoplist_strings en "VibeKey Elements needs Input Monitoring to read button, knob and device events from the receiver."
+write_infoplist_strings fr "VibeKey Elements a besoin de la surveillance de l’entrée pour lire les touches, la molette et les événements de l’appareil depuis le récepteur."
+write_infoplist_strings zh-Hans "VibeKey Elements 需要输入监控来读取接收器上的按键、旋钮和设备事件。"
 
 sign_target() {
   local target="$1"

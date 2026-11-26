@@ -2,6 +2,20 @@ import XCTest
 @testable import VibeKeyCore
 
 final class VibeKeyMiniParityTests: XCTestCase {
+    private var previousLanguage: VibeKeyLanguage!
+
+    // These vectors mirror the vendor app's original Chinese output.
+    override func setUp() {
+        super.setUp()
+        previousLanguage = VibeKeyLocalization.language
+        VibeKeyLocalization.language = .simplifiedChinese
+    }
+
+    override func tearDown() {
+        VibeKeyLocalization.language = previousLanguage
+        super.tearDown()
+    }
+
     func testHumanReadableFnActionRoundTrip() throws {
         let action = ActionConfig.keySequence(keys: ["fn"])
         let text = ActionConfigTextCodec.encode(action)

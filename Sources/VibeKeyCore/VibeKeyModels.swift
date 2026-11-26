@@ -21,12 +21,12 @@ public enum InputControl: String, Codable, CaseIterable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .topButton: return "上键 (K1)"
-        case .middleButton: return "中键 (K2)"
-        case .bottomButton: return "下键 (K3)"
-        case .knobPress: return "旋钮按下"
-        case .knobLeft: return "旋钮左旋"
-        case .knobRight: return "旋钮右旋"
+        case .topButton: return tr(.controlTopButton)
+        case .middleButton: return tr(.controlMiddleButton)
+        case .bottomButton: return tr(.controlBottomButton)
+        case .knobPress: return tr(.controlKnobPress)
+        case .knobLeft: return tr(.controlKnobLeft)
+        case .knobRight: return tr(.controlKnobRight)
         }
     }
 }
@@ -123,10 +123,10 @@ public enum LEDMode: String, Codable, CaseIterable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .auto: return "硬件自管 (出厂默认)"
-        case .solid: return "柔和常亮"
-        case .breathing: return "优雅呼吸"
-        case .off: return "指示灯全灭"
+        case .auto: return tr(.ledAuto)
+        case .solid: return tr(.ledSolid)
+        case .breathing: return tr(.ledBreathing)
+        case .off: return tr(.ledOff)
         }
     }
 }
@@ -161,20 +161,20 @@ public enum PresetAction: String, CaseIterable, Codable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .fn: return "Fn 键"
-        case .enter: return "Enter (回车)"
-        case .cmdDelete: return "⌘ + Delete (删除)"
-        case .scrollUp: return "滚轮向上 (Scroll Up)"
-        case .scrollDown: return "滚轮向下 (Scroll Down)"
-        case .selectAll: return "⌘A (全选)"
-        case .copy: return "⌘C (复制)"
-        case .paste: return "⌘V (粘贴)"
-        case .undo: return "⌘Z (撤销)"
-        case .playPause: return "播放 / 暂停"
-        case .mute: return "静音"
-        case .volumeUp: return "音量 +"
-        case .volumeDown: return "音量 -"
-        case .none: return "无动作"
+        case .fn: return tr(.presetFn)
+        case .enter: return tr(.presetEnter)
+        case .cmdDelete: return tr(.presetCmdDelete)
+        case .scrollUp: return tr(.presetScrollUp)
+        case .scrollDown: return tr(.presetScrollDown)
+        case .selectAll: return tr(.presetSelectAll)
+        case .copy: return tr(.presetCopy)
+        case .paste: return tr(.presetPaste)
+        case .undo: return tr(.presetUndo)
+        case .playPause: return tr(.presetPlayPause)
+        case .mute: return tr(.presetMute)
+        case .volumeUp: return tr(.presetVolumeUp)
+        case .volumeDown: return tr(.presetVolumeDown)
+        case .none: return tr(.presetNone)
         }
     }
 

@@ -11,6 +11,10 @@ if let resultPath = VibeKeyPermissionProbe.resultPath(from: Array(CommandLine.ar
 
 private let vibeKeyProcessStartedAt = Date()
 
+private func tr(_ key: L10nKey, _ args: CustomStringConvertible...) -> String {
+    VibeKeyLocalization.format(VibeKeyLocalization.template(key), args)
+}
+
 private let permissionProbeInterval: TimeInterval = 60
 private let permissionRelaunchCooldown: TimeInterval = 60
 
@@ -39,7 +43,7 @@ private final class ShortcutRecorderField: NSButton {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         if isRecording {
-            stopRecording(message: "已取消录制")
+            stopRecording(message: tr(.recorderCancelled))
         } else {
             startRecording()
         }
@@ -49,7 +53,7 @@ private final class ShortcutRecorderField: NSButton {
         if !isRecording { startRecording() }
         let flags = CGEventFlags(rawValue: UInt64(event.modifierFlags.rawValue))
         if event.keyCode == 0x35, ShortcutRecordingBuffer.modifiers(from: flags).isEmpty {
-            stopRecording(message: "已取消录制")
+            stopRecording(message: tr(.recorderCancelled))
             return
         }
         complete(with: recordingBuffer.record(
@@ -68,14 +72,14 @@ private final class ShortcutRecorderField: NSButton {
         if let shortcut = recordingBuffer.recordModifierChange(flags: flags) {
             complete(with: shortcut)
         } else {
-            updateTitle(recordingBuffer.partialDisplay.isEmpty ? "按下组合键…" : recordingBuffer.partialDisplay)
+            updateTitle(recordingBuffer.partialDisplay.isEmpty ? tr(.recorderPrompt) : recordingBuffer.partialDisplay)
         }
     }
 
     private func startRecording() {
         recordingBuffer = ShortcutRecordingBuffer()
         isRecording = true
-        updateTitle("按下组合键…")
+        updateTitle(tr(.recorderPrompt))
     }
 
     private func stopRecording(message: String) {
@@ -86,7 +90,7 @@ private final class ShortcutRecorderField: NSButton {
 
     private func complete(with shortcut: RecordedShortcut?) {
         guard let shortcut else {
-            updateTitle("该按键暂不支持")
+            updateTitle(tr(.recorderUnsupported))
             return
         }
 
@@ -117,8 +121,8 @@ final class SettingsViewController: NSViewController {
     private var currentSnapshot: VibeKeyDeviceInfoSnapshot
 
     private let titleLabel = NSTextField(labelWithString: "VibeKey Elements")
-    private let subtitleLabel = NSTextField(labelWithString: "优篮子 AU05 轻量原生控制器")
-    private let statusLabel = NSTextField(labelWithString: "正在检测设备...")
+    private let subtitleLabel = NSTextField(labelWithString: tr(.panelSubtitle))
+    private let statusLabel = NSTextField(labelWithString: tr(.panelDetecting))
     private let hardwareInfoLabel = NSTextField(labelWithString: "")
     private let permissionLabel = NSTextField(labelWithString: "")
 
@@ -136,7 +140,7 @@ final class SettingsViewController: NSViewController {
     private var ledPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private var standbyPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private var sleepPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let longConnectCheckbox = NSButton(checkboxWithTitle: "长连保活（暂停闲置省电）", target: nil, action: nil)
+    private let longConnectCheckbox = NSButton(checkboxWithTitle: tr(.longConnectMode), target: nil, action: nil)
 
     init(
         config: VibeKeyConfiguration,
@@ -200,9 +204,9 @@ final class SettingsViewController: NSViewController {
         headerStack.spacing = 3
 
         // 2. System Permission Section
-        let permissionHeading = makeSectionHeader("系统授权检测")
+        let permissionHeading = makeSectionHeader(tr(.sectionPermissions))
         let checkPermissionButton = NSButton(
-            title: "一键检测并授权…",
+            title: tr(.buttonCheckAllPermissions),
             target: self,
             action: #selector(handleCheckAllPermissionsClicked)
         )
@@ -215,24 +219,24 @@ final class SettingsViewController: NSViewController {
         let permissionGrid = makePermissionGrid()
 
         // 3. Mapping Section
-        let mappingHeading = makeSectionHeader("按键与旋钮映射")
+        let mappingHeading = makeSectionHeader(tr(.sectionMapping))
         let mappingGrid = makeMappingGrid()
 
         // 4. Hardware Settings Section
-        let hardwareHeading = makeSectionHeader("硬件功能调节")
+        let hardwareHeading = makeSectionHeader(tr(.sectionHardware))
         let hardwareGrid = makeHardwareGrid()
 
         // 5. Hardware Maintenance Section
-        let maintenanceHeading = makeSectionHeader("硬件维护与复位")
-        let resetKeysBtn = NSButton(title: "恢复默认按键", target: self, action: #selector(handleResetKeysClicked))
+        let maintenanceHeading = makeSectionHeader(tr(.sectionMaintenance))
+        let resetKeysBtn = NSButton(title: tr(.buttonResetKeys), target: self, action: #selector(handleResetKeysClicked))
         resetKeysBtn.bezelStyle = .rounded
         resetKeysBtn.font = .systemFont(ofSize: 11)
 
-        let resetHwBtn = NSButton(title: "出厂硬件复位", target: self, action: #selector(handleResetHwClicked))
+        let resetHwBtn = NSButton(title: tr(.buttonFactoryReset), target: self, action: #selector(handleResetHwClicked))
         resetHwBtn.bezelStyle = .rounded
         resetHwBtn.font = .systemFont(ofSize: 11)
 
-        let rebootBtn = NSButton(title: "重启设备", target: self, action: #selector(handleRebootClicked))
+        let rebootBtn = NSButton(title: tr(.buttonReboot), target: self, action: #selector(handleRebootClicked))
         rebootBtn.bezelStyle = .rounded
         rebootBtn.font = .systemFont(ofSize: 11)
 
@@ -242,15 +246,15 @@ final class SettingsViewController: NSViewController {
         maintenanceStack.spacing = 8
 
         // 6. Action Buttons
-        let refreshBtn = NSButton(title: "刷新信息", target: self, action: #selector(handleRefreshClicked))
+        let refreshBtn = NSButton(title: tr(.buttonRefresh), target: self, action: #selector(handleRefreshClicked))
         refreshBtn.bezelStyle = .rounded
         refreshBtn.font = .systemFont(ofSize: 11)
 
-        let checkUpdateBtn = NSButton(title: "检查更新…", target: self, action: #selector(handleCheckUpdateClicked))
+        let checkUpdateBtn = NSButton(title: tr(.buttonCheckUpdates), target: self, action: #selector(handleCheckUpdateClicked))
         checkUpdateBtn.bezelStyle = .rounded
         checkUpdateBtn.font = .systemFont(ofSize: 11)
 
-        let quitBtn = NSButton(title: "退出", target: self, action: #selector(handleQuitClicked))
+        let quitBtn = NSButton(title: tr(.quit), target: self, action: #selector(handleQuitClicked))
         quitBtn.bezelStyle = .rounded
         quitBtn.font = .systemFont(ofSize: 11)
 
@@ -340,12 +344,12 @@ final class SettingsViewController: NSViewController {
             let nameLabel = NSTextField(labelWithString: permission.displayName)
             nameLabel.font = .systemFont(ofSize: 12, weight: .medium)
 
-            let statusLabel = NSTextField(labelWithString: "检测中")
+            let statusLabel = NSTextField(labelWithString: tr(.permissionChecking))
             statusLabel.font = .systemFont(ofSize: 11, weight: .medium)
             statusLabel.toolTip = permission.usageDescription
 
             let actionButton = NSButton(
-                title: "检测并授权…",
+                title: tr(.permissionCheckAndGrant),
                 target: self,
                 action: #selector(handlePermissionActionClicked(_:))
             )
@@ -402,14 +406,14 @@ final class SettingsViewController: NSViewController {
             }
 
             // Preserve a visible, checked custom action instead of falsely showing None.
-            let customItem = NSMenuItem(title: "自定义动作", action: nil, keyEquivalent: "")
+            let customItem = NSMenuItem(title: tr(.mappingCustomItem), action: nil, keyEquivalent: "")
             customItem.representedObject = "custom"
             customItem.identifier = NSUserInterfaceItemIdentifier("vibekey.custom.\(control.rawValue)")
             popup.menu?.addItem(customItem)
 
             popup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
             popup.heightAnchor.constraint(equalToConstant: 24).isActive = true
-            let customButton = NSButton(title: "自定义…", target: self, action: #selector(handleCustomMappingClicked(_:)))
+            let customButton = NSButton(title: tr(.mappingCustomButton), target: self, action: #selector(handleCustomMappingClicked(_:)))
             customButton.bezelStyle = .rounded
             customButton.font = .systemFont(ofSize: 11)
             customButton.identifier = NSUserInterfaceItemIdentifier(control.rawValue)
@@ -432,16 +436,16 @@ final class SettingsViewController: NSViewController {
 
     private func makeHardwareGrid() -> NSGridView {
         // 1. Noise reduction
-        let nrLabel = NSTextField(labelWithString: "麦克风硬件降噪")
+        let nrLabel = NSTextField(labelWithString: tr(.hwNoiseReduction))
         nrLabel.font = .systemFont(ofSize: 12, weight: .medium)
         nrPopup.font = .systemFont(ofSize: 12)
         nrPopup.target = self
         nrPopup.action = #selector(handleNRChanged(_:))
         let nrOptions: [(String, UInt8)] = [
-            ("关闭 (0 档)", 0),
-            ("低降噪 (1 档)", 1),
-            ("中降噪 (2 档)", 2),
-            ("高降噪 (3 档)", 3)
+            (tr(.noiseLevel0), 0),
+            (tr(.noiseLevel1), 1),
+            (tr(.noiseLevel2), 2),
+            (tr(.noiseLevel3), 3)
         ]
         for (name, lvl) in nrOptions {
             let item = NSMenuItem(title: name, action: nil, keyEquivalent: "")
@@ -452,14 +456,14 @@ final class SettingsViewController: NSViewController {
         nrPopup.heightAnchor.constraint(equalToConstant: 24).isActive = true
 
         // 2. Microphone Enable/Mute
-        let micLabel = NSTextField(labelWithString: "麦克风收音开关")
+        let micLabel = NSTextField(labelWithString: tr(.hwMicrophone))
         micLabel.font = .systemFont(ofSize: 12, weight: .medium)
         micEnablePopup.font = .systemFont(ofSize: 12)
         micEnablePopup.target = self
         micEnablePopup.action = #selector(handleMicEnableChanged(_:))
         let micOptions: [(String, Int)] = [
-            ("开启收音 (默认)", 1),
-            ("静音关闭", 0)
+            (tr(.micShortOnDefault), 1),
+            (tr(.micShortOff), 0)
         ]
         for (name, val) in micOptions {
             let item = NSMenuItem(title: name, action: nil, keyEquivalent: "")
@@ -470,7 +474,7 @@ final class SettingsViewController: NSViewController {
         micEnablePopup.heightAnchor.constraint(equalToConstant: 24).isActive = true
 
         // 3. LED illumination
-        let ledLabel = NSTextField(labelWithString: "机身指示灯模式")
+        let ledLabel = NSTextField(labelWithString: tr(.hwLED))
         ledLabel.font = .systemFont(ofSize: 12, weight: .medium)
         ledPopup.font = .systemFont(ofSize: 12)
         ledPopup.target = self
@@ -484,16 +488,16 @@ final class SettingsViewController: NSViewController {
         ledPopup.heightAnchor.constraint(equalToConstant: 24).isActive = true
 
         // 4. Standby delay
-        let standbyLabel = NSTextField(labelWithString: "闲置待机时间")
+        let standbyLabel = NSTextField(labelWithString: tr(.hwStandby))
         standbyLabel.font = .systemFont(ofSize: 12, weight: .medium)
         standbyPopup.font = .systemFont(ofSize: 12)
         standbyPopup.target = self
         standbyPopup.action = #selector(handleStandbyChanged(_:))
         let standbyOptions: [(String, UInt32)] = [
-            ("5 分钟 (出厂默认)", 300),
-            ("15 分钟", 900),
-            ("30 分钟 (推荐)", 1800),
-            ("从不待机", 0)
+            (tr(.standby5Min), 300),
+            (tr(.standby15Min), 900),
+            (tr(.standby30Min), 1800),
+            (tr(.standbyNever), 0)
         ]
         for (name, sec) in standbyOptions {
             let item = NSMenuItem(title: name, action: nil, keyEquivalent: "")
@@ -504,16 +508,16 @@ final class SettingsViewController: NSViewController {
         standbyPopup.heightAnchor.constraint(equalToConstant: 24).isActive = true
 
         // 5. Sleep delay
-        let sleepLabel = NSTextField(labelWithString: "深度休眠时间")
+        let sleepLabel = NSTextField(labelWithString: tr(.hwSleep))
         sleepLabel.font = .systemFont(ofSize: 12, weight: .medium)
         sleepPopup.font = .systemFont(ofSize: 12)
         sleepPopup.target = self
         sleepPopup.action = #selector(handleSleepChanged(_:))
         let sleepOptions: [(String, UInt32)] = [
-            ("30 分钟", 1800),
-            ("1 小时 (出厂默认)", 3600),
-            ("2 小时", 7200),
-            ("4 小时", 14400)
+            (tr(.sleep30Min), 1800),
+            (tr(.sleep1Hour), 3600),
+            (tr(.sleep2Hours), 7200),
+            (tr(.sleep4Hours), 14400)
         ]
         for (name, sec) in sleepOptions {
             let item = NSMenuItem(title: name, action: nil, keyEquivalent: "")
@@ -533,7 +537,7 @@ final class SettingsViewController: NSViewController {
             [ledLabel, ledPopup],
             [standbyLabel, standbyPopup],
             [sleepLabel, sleepPopup],
-            [makeSectionHeader("连接模式"), longConnectCheckbox]
+            [makeSectionHeader(tr(.sectionConnectionMode)), longConnectCheckbox]
         ])
         grid.rowSpacing = 5
         grid.columnSpacing = 16
@@ -552,42 +556,40 @@ final class SettingsViewController: NSViewController {
 
     private func updateUI() {
         if currentSnapshot.isConnected {
+            let device = tr(.deviceName)
             let batteryText: String
             if let b = currentSnapshot.battery {
-                let charging = b.isCharging ? " ⚡(充电中)" : ""
-                batteryText = " · 电量 \(b.percent)%\(charging) [\(b.voltageMillivolts)mV]"
+                let charging = b.isCharging ? " ⚡(\(tr(.charging)))" : ""
+                batteryText = " · \(tr(.labelBattery)) \(b.percent)%\(charging) [\(b.voltageMillivolts)mV]"
             } else {
-                batteryText = " · 电量获取中..."
+                batteryText = " · \(tr(.panelBatteryLoading))"
+            }
+            func firmwareLine(fallback: L10nKey) -> String {
+                let fw = currentSnapshot.firmwareVersion ?? tr(fallback)
+                let sn = currentSnapshot.serialNumber ?? tr(fallback)
+                return "\(tr(.labelValue, tr(.labelFirmware), fw))  |  SN: \(sn)"
             }
             if currentSnapshot.isDeviceOn == false {
-                statusLabel.stringValue = "● 优篮子 AU05 (已连接 · 设备关机)"
+                statusLabel.stringValue = "● \(device) (\(tr(.stateConnected)) · \(tr(.stateDeviceOff)))"
                 statusLabel.textColor = .systemGray
-                let fw = currentSnapshot.firmwareVersion ?? "未知"
-                let sn = currentSnapshot.serialNumber ?? "未知"
-                hardwareInfoLabel.stringValue = "固件: \(fw)  |  SN: \(sn)  |  电量为最近缓存"
+                hardwareInfoLabel.stringValue = "\(firmwareLine(fallback: .unknown))  |  \(tr(.panelBatteryCached))"
             } else if isLocalPowerSaving {
-                statusLabel.stringValue = "● 优篮子 AU05 (待机省电中)\(batteryText)"
+                statusLabel.stringValue = "● \(device) (\(tr(.statePowerSaving)))\(batteryText)"
                 statusLabel.textColor = .systemOrange
-                let fw = currentSnapshot.firmwareVersion ?? "读取中"
-                let sn = currentSnapshot.serialNumber ?? "读取中"
-                hardwareInfoLabel.stringValue = "固件: \(fw)  |  SN: \(sn) (按任意键唤醒)"
+                hardwareInfoLabel.stringValue = "\(firmwareLine(fallback: .loading)) \(tr(.panelPressToWake))"
             } else if currentSnapshot.isStandby {
-                statusLabel.stringValue = "● 优篮子 AU05 (已连接 · 硬件待机)\(batteryText)"
+                statusLabel.stringValue = "● \(device) (\(tr(.stateConnected)) · \(tr(.stateHardwareStandby)))\(batteryText)"
                 statusLabel.textColor = .systemGreen
-                let fw = currentSnapshot.firmwareVersion ?? "读取中"
-                let sn = currentSnapshot.serialNumber ?? "读取中"
-                hardwareInfoLabel.stringValue = "固件: \(fw)  |  SN: \(sn)"
+                hardwareInfoLabel.stringValue = firmwareLine(fallback: .loading)
             } else {
-                statusLabel.stringValue = "● 优篮子 AU05 (已连接)\(batteryText)"
+                statusLabel.stringValue = "● \(device) (\(tr(.stateConnected)))\(batteryText)"
                 statusLabel.textColor = .systemGreen
-                let fw = currentSnapshot.firmwareVersion ?? "读取中"
-                let sn = currentSnapshot.serialNumber ?? "读取中"
-                hardwareInfoLabel.stringValue = "固件: \(fw)  |  SN: \(sn)"
+                hardwareInfoLabel.stringValue = firmwareLine(fallback: .loading)
             }
         } else {
-            statusLabel.stringValue = "○ 设备未连接 (Offline)"
+            statusLabel.stringValue = "○ \(tr(.panelNotConnected))"
             statusLabel.textColor = .systemGray
-            hardwareInfoLabel.stringValue = "请插入 2.4G 接收器或通过 USB 连接"
+            hardwareInfoLabel.stringValue = tr(.panelPlugIn)
         }
 
         // Permission rows are refreshed separately; the header gives an aggregate status.
@@ -611,7 +613,7 @@ final class SettingsViewController: NSViewController {
                 customItem?.state = .off
                 popup.select(matchingItem)
             } else {
-                customItem?.title = "自定义: \(ActionConfigTextCodec.encode(action))"
+                customItem?.title = tr(.mappingCustomCurrent, ActionConfigTextCodec.encode(action))
                 customItem?.state = .on
                 popup.select(customItem)
             }
@@ -669,12 +671,12 @@ final class SettingsViewController: NSViewController {
               let control = InputControl(rawValue: rawID) else { return }
         let encoded = ActionConfigTextCodec.encode(config.action(for: control))
         let alert = NSAlert()
-        alert.messageText = "自定义 \(control.displayName)"
-        alert.informativeText = "点击上方录制框，然后按下组合键。下方也可输入 WheelUp/Down 或 $ 开头的 Shell 命令。"
+        alert.messageText = tr(.customTitle, control.displayName)
+        alert.informativeText = tr(.customMessage)
 
         let recorder = ShortcutRecorderField(displayText: encoded)
         let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
-        input.placeholderString = "⌘ Shift T、WheelUp 或 $ open -a Terminal"
+        input.placeholderString = tr(.customPlaceholder)
         input.stringValue = encoded
         recorder.onRecorded = { [weak input] action in
             input?.stringValue = ActionConfigTextCodec.encode(action)
@@ -686,8 +688,8 @@ final class SettingsViewController: NSViewController {
         accessory.spacing = 8
         accessory.frame = NSRect(x: 0, y: 0, width: 320, height: 60)
         alert.accessoryView = accessory
-        alert.addButton(withTitle: "保存")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: tr(.save))
+        alert.addButton(withTitle: tr(.cancel))
         NSApplication.shared.activate(ignoringOtherApps: true)
         alert.window.initialFirstResponder = recorder
         guard alert.runModal() == .alertFirstButtonReturn else { return }
@@ -697,8 +699,8 @@ final class SettingsViewController: NSViewController {
             updateUI()
         } catch {
             let failure = NSAlert()
-            failure.messageText = "动作格式无效"
-            failure.informativeText = "请使用一个目标键加可选修饰键，或以 $ 开头的 Shell 命令。"
+            failure.messageText = tr(.customInvalidTitle)
+            failure.informativeText = tr(.customInvalidMessage)
             failure.runModal()
         }
     }
@@ -809,18 +811,18 @@ final class SettingsViewController: NSViewController {
 
             label.stringValue = "● \(report.statusTitle)"
             label.textColor = report.status == .granted ? .systemGreen : .systemOrange
-            button.title = report.status == .granted ? "打开设置…" : "检测并授权…"
+            button.title = tr(report.status == .granted ? .permissionOpenSettings : .permissionCheckAndGrant)
             button.toolTip = report.status == .granted
-                ? "打开\(report.permission.displayName)设置面板"
-                : "\(report.permission.usageDescription)；点击后打开\(report.permission.displayName)设置面板"
+                ? tr(.permissionTooltipGranted, report.permission.displayName)
+                : tr(.permissionTooltipMissing, report.permission.usageDescription, report.permission.displayName)
         }
 
         let missing = reports.filter(\.needsAttention)
         guard Set(reports.map(\.permission)) == Set(VibeKeyPermission.allCases) else { return }
 
         permissionLabel.stringValue = missing.isEmpty
-            ? "● 系统权限：全部已授权"
-            : "○ 系统权限：\(missing.map(\.permission.displayName).joined(separator: "、"))待授权"
+            ? tr(.permissionAllGranted)
+            : tr(.permissionMissing, missing.map(\.permission.displayName).joined(separator: tr(.listSeparator)))
         permissionLabel.textColor = missing.isEmpty ? .systemGreen : .systemOrange
 
         if notifyObserver {
@@ -1327,29 +1329,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         // 1. Device Info Header
         let statusTitle: String
         if !currentSnapshot.isConnected {
-            statusTitle = "优篮子 AU05 (离线)"
+            statusTitle = "\(tr(.deviceName)) (\(tr(.stateOffline)))"
         } else if currentSnapshot.isDeviceOn == false {
-            statusTitle = "优篮子 AU05 (已连接 · 设备关机)"
+            statusTitle = "\(tr(.deviceName)) (\(tr(.stateConnected)) · \(tr(.stateDeviceOff)))"
         } else {
-            statusTitle = "优篮子 AU05 (已连接)"
+            statusTitle = "\(tr(.deviceName)) (\(tr(.stateConnected)))"
         }
         let headerItem = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
         headerItem.isEnabled = false
         menu.addItem(headerItem)
 
         if let fw = currentSnapshot.firmwareVersion {
-            let fwItem = NSMenuItem(title: "固件版本: \(fw)", action: nil, keyEquivalent: "")
+            let fwItem = NSMenuItem(title: tr(.menuFirmwareVersion, fw), action: nil, keyEquivalent: "")
             fwItem.isEnabled = false
             menu.addItem(fwItem)
         }
         if let sn = currentSnapshot.serialNumber {
-            let snItem = NSMenuItem(title: "序列号: \(sn)", action: nil, keyEquivalent: "")
+            let snItem = NSMenuItem(title: tr(.menuSerialNumber, sn), action: nil, keyEquivalent: "")
             snItem.isEnabled = false
             menu.addItem(snItem)
         }
         if let b = currentSnapshot.battery {
-            let charge = b.isCharging ? "⚡ 充电中" : "电池供电"
-            let batteryItem = NSMenuItem(title: "电量: \(b.percent)% (\(charge), \(b.voltageMillivolts)mV)", action: nil, keyEquivalent: "")
+            let batteryTitle = tr(.labelValue, tr(.labelBattery), VibeKeyReadbackCollector.batteryValue(b))
+            let batteryItem = NSMenuItem(title: b.isCharging ? "⚡ \(batteryTitle)" : batteryTitle, action: nil, keyEquivalent: "")
             batteryItem.isEnabled = false
             menu.addItem(batteryItem)
         }
@@ -1357,11 +1359,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         menu.addItem(NSMenuItem.separator())
 
         // 2. Open Settings Window & Sparkle Updates
-        menu.addItem(NSMenuItem(title: "打开控制面板…", action: #selector(handleOpenPopover), keyEquivalent: ","))
-        let permissionItem = NSMenuItem(title: "授权检测…", action: #selector(runPermissionCheckFromMenu), keyEquivalent: "")
+        menu.addItem(NSMenuItem(title: tr(.menuOpenPanel), action: #selector(handleOpenPopover), keyEquivalent: ","))
+        let permissionItem = NSMenuItem(title: tr(.menuCheckPermissions), action: #selector(runPermissionCheckFromMenu), keyEquivalent: "")
         permissionItem.target = self
         menu.addItem(permissionItem)
-        let updateMenuItem = NSMenuItem(title: "检查更新…", action: #selector(handleCheckForUpdates), keyEquivalent: "")
+        let updateMenuItem = NSMenuItem(title: tr(.buttonCheckUpdates), action: #selector(handleCheckForUpdates), keyEquivalent: "")
         updateMenuItem.target = self
         menu.addItem(updateMenuItem)
 
@@ -1383,7 +1385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             parent.submenu = sub
             keysMenu.addItem(parent)
         }
-        let keysParent = NSMenuItem(title: "按键映射", action: nil, keyEquivalent: "")
+        let keysParent = NSMenuItem(title: tr(.menuKeyMapping), action: nil, keyEquivalent: "")
         keysParent.submenu = keysMenu
         menu.addItem(keysParent)
 
@@ -1392,10 +1394,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         for level in 0...3 {
             let label: String
             switch level {
-            case 0: label = "关闭 (0)"
-            case 1: label = "低 (1)"
-            case 2: label = "中 (2)"
-            case 3: label = "高 (3)"
+            case 0: label = tr(.noiseShort0)
+            case 1: label = tr(.noiseShort1)
+            case 2: label = tr(.noiseShort2)
+            case 3: label = tr(.noiseShort3)
             default: label = "\(level)"
             }
             let item = NSMenuItem(title: label, action: #selector(handleSetNR(_:)), keyEquivalent: "")
@@ -1403,23 +1405,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             item.state = (config.micNoiseReduction == UInt8(level)) ? .on : .off
             nrMenu.addItem(item)
         }
-        let nrParent = NSMenuItem(title: "麦克风降噪", action: nil, keyEquivalent: "")
+        let nrParent = NSMenuItem(title: tr(.menuNoiseReduction), action: nil, keyEquivalent: "")
         nrParent.submenu = nrMenu
         menu.addItem(nrParent)
 
         // 5. Mic Enable
         let micMenu = NSMenu()
-        let micOnItem = NSMenuItem(title: "开启收音 (默认)", action: #selector(handleSetMicEnableMenu(_:)), keyEquivalent: "")
+        let micOnItem = NSMenuItem(title: tr(.micShortOnDefault), action: #selector(handleSetMicEnableMenu(_:)), keyEquivalent: "")
         micOnItem.tag = 1
         micOnItem.state = config.micEnabled ? .on : .off
         micMenu.addItem(micOnItem)
 
-        let micOffItem = NSMenuItem(title: "静音关闭", action: #selector(handleSetMicEnableMenu(_:)), keyEquivalent: "")
+        let micOffItem = NSMenuItem(title: tr(.micShortOff), action: #selector(handleSetMicEnableMenu(_:)), keyEquivalent: "")
         micOffItem.tag = 0
         micOffItem.state = !config.micEnabled ? .on : .off
         micMenu.addItem(micOffItem)
 
-        let micParent = NSMenuItem(title: "麦克风开关", action: nil, keyEquivalent: "")
+        let micParent = NSMenuItem(title: tr(.menuMicrophone), action: nil, keyEquivalent: "")
         micParent.submenu = micMenu
         menu.addItem(micParent)
 
@@ -1431,17 +1433,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             item.state = (config.ledMode == mode) ? .on : .off
             ledMenu.addItem(item)
         }
-        let ledParent = NSMenuItem(title: "指示灯模式", action: nil, keyEquivalent: "")
+        let ledParent = NSMenuItem(title: tr(.menuLEDMode), action: nil, keyEquivalent: "")
         ledParent.submenu = ledMenu
         menu.addItem(ledParent)
 
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "出厂硬件复位", action: #selector(handleResetHardwareFromMenu), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "恢复默认按键", action: #selector(handleResetKeysFromMenu), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "重启设备", action: #selector(handleRebootFromMenu), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: tr(.buttonFactoryReset), action: #selector(handleResetHardwareFromMenu), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: tr(.buttonResetKeys), action: #selector(handleResetKeysFromMenu), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: tr(.buttonReboot), action: #selector(handleRebootFromMenu), keyEquivalent: ""))
 
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "退出 VibeKey Elements", action: #selector(handleQuit), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: tr(.menuQuitApp), action: #selector(handleQuit), keyEquivalent: "q"))
 
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
     }
@@ -1558,7 +1560,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         // 3. Clean status bar typography (clean spacing, monospaced digits, no squeezed emojis)
         if !currentSnapshot.isConnected {
             button.attributedTitle = NSAttributedString(string: "")
-            button.toolTip = "优篮子 AU05 (未连接)"
+            button.toolTip = "\(tr(.deviceName)) (\(tr(.stateNotConnected)))"
             return
         }
 
@@ -1571,7 +1573,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
                 ]
             )
             button.attributedTitle = attr
-            button.toolTip = "优篮子 AU05 · 已连接 · 设备关机"
+            button.toolTip = "\(tr(.deviceName)) · \(tr(.stateConnected)) · \(tr(.stateDeviceOff))"
             return
         }
 
@@ -1587,12 +1589,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             )
             button.attributedTitle = attr
             let chargeState = battery.isCharging
-                ? "充电中"
-                : (VibeKeyHIDManager.shared.isPowerSaving ? "闲置待机省电中" : "电池供电")
-            button.toolTip = "优篮子 AU05 · 电量 \(battery.percent)% (\(chargeState), \(battery.voltageMillivolts)mV)"
+                ? tr(.charging)
+                : tr(VibeKeyHIDManager.shared.isPowerSaving ? .statePowerSaving : .onBattery)
+            let batteryValue = tr(.batteryValue, battery.percent, chargeState, battery.voltageMillivolts)
+            button.toolTip = "\(tr(.deviceName)) · \(tr(.labelValue, tr(.labelBattery), batteryValue))"
         } else {
             button.attributedTitle = NSAttributedString(string: "")
-            button.toolTip = VibeKeyHIDManager.shared.isPowerSaving ? "优篮子 AU05 (待机省电中)" : "优篮子 AU05 (已连接)"
+            button.toolTip = "\(tr(.deviceName)) (\(tr(VibeKeyHIDManager.shared.isPowerSaving ? .statePowerSaving : .stateConnected)))"
         }
     }
 
