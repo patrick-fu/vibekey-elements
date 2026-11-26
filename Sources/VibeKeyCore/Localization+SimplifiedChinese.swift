@@ -3,7 +3,6 @@ extension VibeKeyLocalization {
     static func simplifiedChineseString(_ key: L10nKey) -> String {
         switch key {
         case .deviceName: return "优篮子 AU05"
-        case .labelValue: return "%1$@: %2$@"
         case .listSeparator: return "、"
         case .save: return "保存"
         case .cancel: return "取消"
@@ -12,7 +11,6 @@ extension VibeKeyLocalization {
         case .loading: return "获取中"
         case .charging: return "充电中"
         case .onBattery: return "电池供电"
-        case .batteryValue: return "%1$@%% (%2$@, %3$@mV)"
 
         case .labelBattery: return "电量"
         case .labelStatus: return "状态"
@@ -71,7 +69,6 @@ extension VibeKeyLocalization {
 
         case .permissionInputMonitoring: return "输入监控"
         case .permissionAccessibility: return "辅助功能"
-        case .permissionSettingsTitle: return "%@设置…"
         case .permissionInputMonitoringUsage: return "读取 VibeKey 按键、旋钮和设备事件"
         case .permissionAccessibilityUsage: return "把 VibeKey 动作转换为系统按键"
         case .permissionGranted: return "已授权"
@@ -80,10 +77,7 @@ extension VibeKeyLocalization {
         case .permissionChecking: return "检测中"
         case .permissionCheckAndGrant: return "检测并授权…"
         case .permissionOpenSettings: return "打开设置…"
-        case .permissionTooltipGranted: return "打开%@设置面板"
-        case .permissionTooltipMissing: return "%1$@；点击后打开%2$@设置面板"
         case .permissionAllGranted: return "● 系统权限：全部已授权"
-        case .permissionMissing: return "○ 系统权限：%@待授权"
 
         case .recorderPrompt: return "按下组合键…"
         case .recorderCancelled: return "已取消录制"
@@ -111,8 +105,6 @@ extension VibeKeyLocalization {
 
         case .mappingCustomItem: return "自定义动作"
         case .mappingCustomButton: return "自定义…"
-        case .mappingCustomCurrent: return "自定义: %@"
-        case .customTitle: return "自定义 %@"
         case .customMessage: return "点击上方录制框，然后按下组合键。下方也可输入 WheelUp/Down 或 $ 开头的 Shell 命令。"
         case .customPlaceholder: return "⌘ Shift T、WheelUp 或 $ open -a Terminal"
         case .customInvalidTitle: return "动作格式无效"
@@ -140,8 +132,6 @@ extension VibeKeyLocalization {
         case .sleep2Hours: return "2 小时"
         case .sleep4Hours: return "4 小时"
 
-        case .menuFirmwareVersion: return "固件版本: %@"
-        case .menuSerialNumber: return "序列号: %@"
         case .menuOpenPanel: return "打开控制面板…"
         case .menuCheckPermissions: return "授权检测…"
         case .menuKeyMapping: return "按键映射"

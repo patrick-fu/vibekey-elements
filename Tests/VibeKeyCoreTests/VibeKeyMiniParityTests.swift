@@ -2,20 +2,6 @@ import XCTest
 @testable import VibeKeyCore
 
 final class VibeKeyMiniParityTests: XCTestCase {
-    private var previousLanguage: VibeKeyLanguage!
-
-    // These vectors mirror the vendor app's original Chinese output.
-    override func setUp() {
-        super.setUp()
-        previousLanguage = VibeKeyLocalization.language
-        VibeKeyLocalization.language = .simplifiedChinese
-    }
-
-    override func tearDown() {
-        VibeKeyLocalization.language = previousLanguage
-        super.tearDown()
-    }
-
     func testHumanReadableFnActionRoundTrip() throws {
         let action = ActionConfig.keySequence(keys: ["fn"])
         let text = ActionConfigTextCodec.encode(action)
@@ -76,7 +62,7 @@ final class VibeKeyMiniParityTests: XCTestCase {
 
         let complete = collector.isQueryStatusComplete
         XCTAssertTrue(complete)
-        let summary = collector.statusSummary()
+        let summary = collector.statusSummary(language: .simplifiedChinese)
         XCTAssertTrue(summary.contains("设备状态获取中"))
         XCTAssertTrue(summary.contains("电量: 75% (充电中, 3700mV)"))
         XCTAssertTrue(summary.contains("固件: 1.0.3"))
@@ -90,19 +76,19 @@ final class VibeKeyMiniParityTests: XCTestCase {
     func testReadbackCollectorDisplaysKnobRotationWithoutButtonPhase() throws {
         var collector = VibeKeyReadbackCollector()
         let knobRight = try XCTUnwrap(collector.ingest(plaintext: [0x0B, 0x10, 0x00, 0x00, 0x04]))
-        XCTAssertEqual(VibeKeyReadbackCollector.display(knobRight), "旋钮右旋")
+        XCTAssertEqual(VibeKeyReadbackCollector.display(knobRight, language: .simplifiedChinese), "旋钮右旋")
 
         let knobLeft = try XCTUnwrap(collector.ingest(plaintext: [0x0B, 0x10, 0x00, 0x00, 0x05]))
-        XCTAssertEqual(VibeKeyReadbackCollector.display(knobLeft), "旋钮左旋")
+        XCTAssertEqual(VibeKeyReadbackCollector.display(knobLeft, language: .simplifiedChinese), "旋钮左旋")
     }
 
     func testReadbackCollectorRendersInputAndPowerOff() throws {
         var collector = VibeKeyReadbackCollector()
         let input = try XCTUnwrap(collector.ingest(plaintext: [0x0B, 0x10, 0x6F, 0x01, 0x00]))
-        XCTAssertEqual(VibeKeyReadbackCollector.display(input), "K1 down")
+        XCTAssertEqual(VibeKeyReadbackCollector.display(input, language: .simplifiedChinese), "K1 down")
 
         let poweredOff = try XCTUnwrap(collector.ingest(plaintext: [0x0B, 0x0B, 0x00]))
-        XCTAssertEqual(VibeKeyReadbackCollector.display(poweredOff), "设备关机（接收器仍连接）")
+        XCTAssertEqual(VibeKeyReadbackCollector.display(poweredOff, language: .simplifiedChinese), "设备关机（接收器仍连接）")
         XCTAssertEqual(collector.snapshot.isDeviceOn, false)
     }
 

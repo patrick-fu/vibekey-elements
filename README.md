@@ -160,10 +160,10 @@ open .build/release/VibeKeyElements
 
 ### 🌐 Language
 
-The app and CLI are available in **English**, **French** and **Simplified Chinese**. The language follows your macOS preferred languages (English is the fallback). To pick another one:
+The menu bar app is available in **English**, **French**, and **Simplified Chinese** (CLI `status` summaries and `monitor` event output follow the same language; command usage/errors remain English). The language follows your macOS preferred languages (English is the fallback). To pick another one:
 
-- **Per app**: System Settings → General → Language & Region → Applications → add *VibeKey Elements*.
-- **For one launch**: `VIBEKEY_LANG=fr ".build/release/VibeKey Elements.app/Contents/MacOS/VibeKeyElements"` (also works with `vibekey`).
+- **Per app** (for an installed `.app` or one built via `./scripts/build-app.sh`): System Settings → General → Language & Region → Applications → add *VibeKey Elements*.
+- **For one launch**: `VIBEKEY_LANG=fr .build/release/VibeKeyElements` (`VIBEKEY_LANG` also applies to `vibekey status` and `vibekey monitor`).
 
 ---
 

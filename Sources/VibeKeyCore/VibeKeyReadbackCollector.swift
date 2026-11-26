@@ -10,7 +10,7 @@ public enum VibeKeyReadbackObservation: Equatable, Sendable {
 
 /// Collects decrypted HID responses for CLI readback and live monitoring.
 /// This keeps the stateless packet parsers reusable while giving the CLI a
-/// testable presentation boundary.
+/// testable presentation seam.
 public struct VibeKeyReadbackCollector: Sendable {
     public private(set) var snapshot = VibeKeyDeviceInfoSnapshot(isConnected: true)
 
@@ -82,58 +82,73 @@ public struct VibeKeyReadbackCollector: Sendable {
     }
 
     public func statusSummary() -> String {
+        statusSummary(language: VibeKeyLocalization.language)
+    }
+
+    public func statusSummary(language: VibeKeyLanguage) -> String {
+        let strings = VibeKeyStrings(language: language)
         let powerState: String
         switch snapshot.isDeviceOn {
-        case .some(false): powerState = tr(.stateDeviceOff)
-        case .some(true): powerState = tr(.stateDeviceOn)
-        case .none: powerState = tr(.stateDeviceLoading)
+        case .some(false): powerState = strings[.stateDeviceOff]
+        case .some(true): powerState = strings[.stateDeviceOn]
+        case .none: powerState = strings[.stateDeviceLoading]
         }
 
-        let loading = tr(.loading)
-        let battery = snapshot.battery.map(Self.batteryValue) ?? loading
-        let micState = snapshot.micEnabled.map { tr($0 ? .micShortOn : .micShortMuted) }
+        let loading = strings[.loading]
+        let battery = snapshot.battery.map { strings.batteryValue($0) } ?? loading
+        let micState = snapshot.micEnabled.map { strings[$0 ? .micShortOn : .micShortMuted] }
 
         let lines = [
-            tr(.labelValue, tr(.labelStatus), "\(tr(.stateConnected)) · \(powerState)"),
-            tr(.labelValue, tr(.labelBattery), battery),
-            tr(.labelValue, tr(.labelFirmware), snapshot.firmwareVersion ?? loading),
-            tr(.labelValue, tr(.labelSerial), snapshot.serialNumber ?? loading),
-            tr(.labelValue, tr(.labelStandby), snapshot.standbyTimeSeconds.map { "\($0)s" } ?? loading),
-            tr(.labelValue, tr(.labelDeepSleep), snapshot.sleepTimeSeconds.map { "\($0)s" } ?? loading),
-            tr(.labelValue, tr(.labelNoiseReduction), snapshot.micNoiseReduction.map(String.init) ?? loading),
-            tr(.labelValue, tr(.labelMicrophone), micState ?? loading)
+            strings.labelValue(.labelStatus, "\(strings[.stateConnected]) · \(powerState)"),
+            strings.labelValue(.labelBattery, battery),
+            strings.labelValue(.labelFirmware, snapshot.firmwareVersion ?? loading),
+            strings.labelValue(.labelSerial, snapshot.serialNumber ?? loading),
+            strings.labelValue(.labelStandby, snapshot.standbyTimeSeconds.map { "\($0)s" } ?? loading),
+            strings.labelValue(.labelDeepSleep, snapshot.sleepTimeSeconds.map { "\($0)s" } ?? loading),
+            strings.labelValue(.labelNoiseReduction, snapshot.micNoiseReduction.map(String.init) ?? loading),
+            strings.labelValue(.labelMicrophone, micState ?? loading)
         ]
         return lines.joined(separator: "\n")
     }
 
     /// "75% (Charging, 3700mV)" in the active language.
     public static func batteryValue(_ status: VibeKeyBatteryStatus) -> String {
-        tr(.batteryValue, status.percent, tr(status.isCharging ? .charging : .onBattery), status.voltageMillivolts)
+        batteryValue(status, language: VibeKeyLocalization.language)
+    }
+
+    /// "75% (Charging, 3700mV)" in `language`.
+    public static func batteryValue(_ status: VibeKeyBatteryStatus, language: VibeKeyLanguage) -> String {
+        VibeKeyStrings(language: language).batteryValue(status)
     }
 
     public static func display(_ observation: VibeKeyReadbackObservation) -> String {
+        display(observation, language: VibeKeyLocalization.language)
+    }
+
+    public static func display(_ observation: VibeKeyReadbackObservation, language: VibeKeyLanguage) -> String {
+        let strings = VibeKeyStrings(language: language)
         switch observation {
         case .firmwareVersion(let version):
-            return tr(.labelValue, tr(.labelFirmware), version)
+            return strings.labelValue(.labelFirmware, version)
         case .serialNumber(let serial):
-            return tr(.labelValue, tr(.labelSerial), serial)
+            return strings.labelValue(.labelSerial, serial)
         case .power(let response):
             switch response {
-            case .battery(let status): return tr(.labelValue, tr(.labelBattery), batteryValue(status))
-            case .standbyTime(let seconds): return tr(.labelValue, tr(.labelStandby), "\(seconds)s")
-            case .sleepTime(let seconds): return tr(.labelValue, tr(.labelDeepSleep), "\(seconds)s")
-            case .micNR(let level): return tr(.labelValue, tr(.labelNoiseReduction), level)
-            case .micEnabled(let enabled): return tr(enabled ? .micOn : .micMuted)
+            case .battery(let status): return strings.labelValue(.labelBattery, strings.batteryValue(status))
+            case .standbyTime(let seconds): return strings.labelValue(.labelStandby, "\(seconds)s")
+            case .sleepTime(let seconds): return strings.labelValue(.labelDeepSleep, "\(seconds)s")
+            case .micNR(let level): return strings.labelValue(.labelNoiseReduction, String(level))
+            case .micEnabled(let enabled): return strings[enabled ? .micOn : .micMuted]
             }
         case .notice(let notice):
             switch notice {
-            case .standby(let isStandby): return tr(isStandby ? .stateDeviceStandby : .stateDeviceAwake)
-            case .active(let isActive): return tr(isActive ? .stateDeviceOn : .stateDeviceOffReceiverConnected)
-            case .powerOn: return tr(.stateDevicePoweredOn)
+            case .standby(let isStandby): return strings[isStandby ? .stateDeviceStandby : .stateDeviceAwake]
+            case .active(let isActive): return strings[isActive ? .stateDeviceOn : .stateDeviceOffReceiverConnected]
+            case .powerOn: return strings[.stateDevicePoweredOn]
             }
         case .input(let control, let phase):
             switch control {
-            case .knobLeft, .knobRight: return control.displayName
+            case .knobLeft, .knobRight: return control.displayName(in: language)
             default: return "\(control.displayLabel) \(phase.rawValue)"
             }
         }

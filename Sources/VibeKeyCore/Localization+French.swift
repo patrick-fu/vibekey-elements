@@ -4,7 +4,6 @@ extension VibeKeyLocalization {
     static func frenchString(_ key: L10nKey) -> String {
         switch key {
         case .deviceName: return "Ulanzi AU05"
-        case .labelValue: return "%1$@ : %2$@"
         case .listSeparator: return ", "
         case .save: return "Enregistrer"
         case .cancel: return "Annuler"
@@ -13,7 +12,6 @@ extension VibeKeyLocalization {
         case .loading: return "Lecture…"
         case .charging: return "En charge"
         case .onBattery: return "Sur batterie"
-        case .batteryValue: return "%1$@ %% (%2$@, %3$@ mV)"
 
         case .labelBattery: return "Batterie"
         case .labelStatus: return "État"
@@ -72,7 +70,6 @@ extension VibeKeyLocalization {
 
         case .permissionInputMonitoring: return "Surveillance de l’entrée"
         case .permissionAccessibility: return "Accessibilité"
-        case .permissionSettingsTitle: return "Réglages « %@ »…"
         case .permissionInputMonitoringUsage: return "Lit les touches, la molette et les événements de l’appareil VibeKey"
         case .permissionAccessibilityUsage: return "Convertit les actions VibeKey en frappes clavier système"
         case .permissionGranted: return "Autorisé"
@@ -81,10 +78,7 @@ extension VibeKeyLocalization {
         case .permissionChecking: return "Vérification"
         case .permissionCheckAndGrant: return "Vérifier et autoriser…"
         case .permissionOpenSettings: return "Ouvrir les réglages…"
-        case .permissionTooltipGranted: return "Ouvrir les réglages « %@ »"
-        case .permissionTooltipMissing: return "%1$@. Cliquez pour ouvrir les réglages « %2$@ »."
         case .permissionAllGranted: return "● Autorisations : toutes accordées"
-        case .permissionMissing: return "○ Autorisations requises : %@"
 
         case .recorderPrompt: return "Appuyez sur un raccourci…"
         case .recorderCancelled: return "Enregistrement annulé"
@@ -112,8 +106,6 @@ extension VibeKeyLocalization {
 
         case .mappingCustomItem: return "Action personnalisée"
         case .mappingCustomButton: return "Personnaliser…"
-        case .mappingCustomCurrent: return "Personnalisé : %@"
-        case .customTitle: return "Personnaliser « %@ »"
         case .customMessage: return "Cliquez sur le champ d’enregistrement ci-dessus, puis appuyez sur une combinaison de touches. Vous pouvez aussi saisir ci-dessous WheelUp/WheelDown ou une commande shell commençant par $."
         case .customPlaceholder: return "⌘ Shift T, WheelUp ou $ open -a Terminal"
         case .customInvalidTitle: return "Format d’action invalide"
@@ -141,8 +133,6 @@ extension VibeKeyLocalization {
         case .sleep2Hours: return "2 heures"
         case .sleep4Hours: return "4 heures"
 
-        case .menuFirmwareVersion: return "Version du firmware : %@"
-        case .menuSerialNumber: return "Numéro de série : %@"
         case .menuOpenPanel: return "Ouvrir le panneau de contrôle…"
         case .menuCheckPermissions: return "Vérifier les autorisations…"
         case .menuKeyMapping: return "Affectation des touches"

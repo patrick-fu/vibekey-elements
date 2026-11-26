@@ -17,10 +17,13 @@ final class VibeKeyPermissionTests: XCTestCase {
         )
     }
 
-    func testEveryRequiredPermissionHasChineseGuidanceAndSettingsURL() {
+    func testEveryRequiredPermissionHasGuidanceAndSettingsURL() {
         for permission in VibeKeyPermission.allCases {
-            XCTAssertFalse(permission.usageDescription.isEmpty)
-            XCTAssertFalse(permission.settingsTitle.isEmpty)
+            for language in VibeKeyLanguage.allCases {
+                XCTAssertFalse(permission.displayName(in: language).isEmpty)
+                XCTAssertFalse(permission.usageDescription(in: language).isEmpty)
+                XCTAssertFalse(permission.settingsTitle(in: language).isEmpty)
+            }
             XCTAssertNotNil(permission.settingsURL)
         }
         XCTAssertEqual(

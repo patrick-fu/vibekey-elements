@@ -7,26 +7,40 @@ public enum VibeKeyPermission: String, CaseIterable, Equatable, Sendable {
     case inputMonitoring
     case accessibility
 
-    public var displayName: String {
+    public func displayName(in language: VibeKeyLanguage) -> String {
+        let strings = VibeKeyStrings(language: language)
         switch self {
         case .inputMonitoring:
-            return tr(.permissionInputMonitoring)
+            return strings[.permissionInputMonitoring]
         case .accessibility:
-            return tr(.permissionAccessibility)
+            return strings[.permissionAccessibility]
         }
+    }
+
+    public var displayName: String {
+        displayName(in: VibeKeyLocalization.language)
+    }
+
+    public func settingsTitle(in language: VibeKeyLanguage) -> String {
+        VibeKeyStrings(language: language).permissionSettingsTitle(displayName(in: language))
     }
 
     public var settingsTitle: String {
-        tr(.permissionSettingsTitle, displayName)
+        settingsTitle(in: VibeKeyLocalization.language)
+    }
+
+    public func usageDescription(in language: VibeKeyLanguage) -> String {
+        let strings = VibeKeyStrings(language: language)
+        switch self {
+        case .inputMonitoring:
+            return strings[.permissionInputMonitoringUsage]
+        case .accessibility:
+            return strings[.permissionAccessibilityUsage]
+        }
     }
 
     public var usageDescription: String {
-        switch self {
-        case .inputMonitoring:
-            return tr(.permissionInputMonitoringUsage)
-        case .accessibility:
-            return tr(.permissionAccessibilityUsage)
-        }
+        usageDescription(in: VibeKeyLocalization.language)
     }
 
     public var settingsURL: URL? {
@@ -51,19 +65,29 @@ public struct VibeKeyPermissionReport: Equatable, Sendable {
     public let permission: VibeKeyPermission
     public let status: VibeKeyPermissionStatus
 
+    public init(permission: VibeKeyPermission, status: VibeKeyPermissionStatus) {
+        self.permission = permission
+        self.status = status
+    }
+
     public var needsAttention: Bool {
         status != .granted
     }
 
-    public var statusTitle: String {
+    public func statusTitle(in language: VibeKeyLanguage) -> String {
+        let strings = VibeKeyStrings(language: language)
         switch status {
         case .granted:
-            return tr(.permissionGranted)
+            return strings[.permissionGranted]
         case .denied:
-            return tr(.permissionDenied)
+            return strings[.permissionDenied]
         case .undetermined:
-            return tr(.permissionUndetermined)
+            return strings[.permissionUndetermined]
         }
+    }
+
+    public var statusTitle: String {
+        statusTitle(in: VibeKeyLocalization.language)
     }
 }
 

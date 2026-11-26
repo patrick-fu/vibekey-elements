@@ -158,6 +158,13 @@ vibekey hook idle
 open .build/release/VibeKeyElements
 ```
 
+### 🌐 多语言支持
+
+菜单栏应用支持 **简体中文**、**英文** 与 **法文**（CLI 的 `status` 摘要与 `monitor` 实时事件输出同样支持，其余命令帮助与错误提示仍为英文），默认跟随 macOS 系统首选语言（回退为英文）。如需单独切换语言：
+
+- **单应用语言**（通过 DMG 安装或先执行 `./scripts/build-app.sh` 打包为 `.app` 后）：系统设置 → 通用 → 语言与地区 → 应用程序 → 添加 *VibeKey Elements*。
+- **临时指定运行**：`VIBEKEY_LANG=fr .build/release/VibeKeyElements`（`vibekey status` / `vibekey monitor` 同样支持 `VIBEKEY_LANG`）。
+
 ---
 
 ## 🛠 代码架构

@@ -70,10 +70,10 @@ VibeKey Elements is a native Swift macOS hub and driver for the Ulanzi AU05 (Vib
 
 ## 🌐 Localization
 
-- Every user-facing string (app UI, CLI output, `displayName`/`statusTitle` properties) must go through `L10nKey` in `Sources/VibeKeyCore/Localization.swift`. Never hardcode UI text.
-- Adding a key requires a translation in each `Localization+*.swift` table (English, French, Simplified Chinese); the exhaustive `switch` makes a missing one a compile error.
-- Templates that take arguments use `%@` / `%1$@` and escape a literal percent as `%%`. Placeholders must match English (`VibeKeyLocalizationTests`).
-- French uses a narrow no-break space (U+202F) before `:` and `%`.
+- Every user-facing string (app UI, CLI output, `displayName`/`statusTitle` properties) must go through `VibeKeyStrings` / `L10nKey` in `Sources/VibeKeyCore/Localization.swift`. Never hardcode UI text.
+- Adding a static `L10nKey` requires a translation in each `Localization+*.swift` table (English, French, Simplified Chinese); parameterized messages live as typed methods on `VibeKeyStrings` so every language is checked at compile time without `String(format:)` varargs.
+- Pass an explicit `VibeKeyLanguage` or `VibeKeyStrings` in tests and presentation builders instead of mutating `VibeKeyLocalization.language` globally.
+- French uses a narrow no-break space (U+202F) before `:` and `%`, and no-break space (U+00A0) inside `« … »`.
 - New languages also need an entry in `CFBundleLocalizations` and an `InfoPlist.strings` in `scripts/build-app.sh`.
 
 ---

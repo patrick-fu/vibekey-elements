@@ -8,7 +8,8 @@ public enum VibeKeyLanguage: String, CaseIterable, Sendable {
     case simplifiedChinese = "zh-Hans"
 }
 
-/// Resolves the active UI language and formats localized strings.
+/// Resolves the active UI language from environment overrides and macOS
+/// preferences.
 ///
 /// Strings live in Swift tables (see `Localization+*.swift`) instead of
 /// `.strings` resources so the standalone CLI binary and the hand-assembled
@@ -59,38 +60,164 @@ public enum VibeKeyLocalization {
         return match.flatMap(VibeKeyLanguage.init(rawValue:)) ?? .english
     }
 
-    /// Returns the template for `key` in `language` (defaults to the active one).
-    public static func template(_ key: L10nKey, language: VibeKeyLanguage? = nil) -> String {
-        switch language ?? self.language {
-        case .english: return englishString(key)
-        case .french: return frenchString(key)
-        case .simplifiedChinese: return simplifiedChineseString(key)
+    /// Returns the localized static string for `key` in `language` (defaults to the active one).
+    public static func string(_ key: L10nKey, language: VibeKeyLanguage? = nil) -> String {
+        VibeKeyStrings(language: language ?? self.language)[key]
+    }
+}
+
+/// Immutable, thread-safe string catalog bound to a single `VibeKeyLanguage`.
+///
+/// Static strings are looked up via `strings[.someKey]`; parameterized messages
+/// are exposed as typed methods so callers and translations are checked at
+/// compile time without C-style `String(format:)` varargs.
+public struct VibeKeyStrings: Equatable, Sendable {
+    public let language: VibeKeyLanguage
+
+    public init(language: VibeKeyLanguage) {
+        self.language = language
+    }
+
+    public static var current: VibeKeyStrings {
+        VibeKeyStrings(language: VibeKeyLocalization.language)
+    }
+
+    public subscript(_ key: L10nKey) -> String {
+        switch language {
+        case .english: return VibeKeyLocalization.englishString(key)
+        case .french: return VibeKeyLocalization.frenchString(key)
+        case .simplifiedChinese: return VibeKeyLocalization.simplifiedChineseString(key)
         }
     }
 
-    /// Localized string for `key`. Arguments fill `%@` / `%1$@` placeholders;
-    /// templates that take arguments must escape a literal percent as `%%`.
-    public static func string(_ key: L10nKey, _ args: CustomStringConvertible..., language: VibeKeyLanguage? = nil) -> String {
-        format(template(key, language: language), args)
+    // MARK: - Type-safe parameterized strings
+
+    public func labelValue(_ label: String, _ value: String) -> String {
+        switch language {
+        case .english, .simplifiedChinese:
+            return "\(label): \(value)"
+        case .french:
+            return "\(label)\u{202F}: \(value)"
+        }
     }
 
-    public static func format(_ template: String, _ args: [CustomStringConvertible]) -> String {
-        guard !args.isEmpty else { return template }
-        return String(format: template, arguments: args.map { $0.description as NSString })
+    public func labelValue(_ label: L10nKey, _ value: String) -> String {
+        labelValue(self[label], value)
+    }
+
+    public func batteryValue(percent: UInt16, state: String, voltageMillivolts: UInt16) -> String {
+        switch language {
+        case .english, .simplifiedChinese:
+            return "\(percent)% (\(state), \(voltageMillivolts)mV)"
+        case .french:
+            return "\(percent)\u{202F}% (\(state), \(voltageMillivolts)\u{202F}mV)"
+        }
+    }
+
+    public func batteryValue(_ status: VibeKeyBatteryStatus) -> String {
+        batteryValue(
+            percent: status.percent,
+            state: self[status.isCharging ? .charging : .onBattery],
+            voltageMillivolts: status.voltageMillivolts
+        )
+    }
+
+    public func permissionSettingsTitle(_ permissionName: String) -> String {
+        switch language {
+        case .english:
+            return "\(permissionName) Settings…"
+        case .french:
+            return "Réglages «\u{00A0}\(permissionName)\u{00A0}»…"
+        case .simplifiedChinese:
+            return "\(permissionName)设置…"
+        }
+    }
+
+    public func permissionTooltipGranted(_ permissionName: String) -> String {
+        switch language {
+        case .english:
+            return "Open \(permissionName) settings"
+        case .french:
+            return "Ouvrir les réglages «\u{00A0}\(permissionName)\u{00A0}»"
+        case .simplifiedChinese:
+            return "打开\(permissionName)设置面板"
+        }
+    }
+
+    public func permissionTooltipMissing(usage: String, permissionName: String) -> String {
+        switch language {
+        case .english:
+            return "\(usage). Click to open \(permissionName) settings."
+        case .french:
+            return "\(usage). Cliquez pour ouvrir les réglages «\u{00A0}\(permissionName)\u{00A0}»."
+        case .simplifiedChinese:
+            return "\(usage)；点击后打开\(permissionName)设置面板"
+        }
+    }
+
+    public func permissionMissing(_ permissionNames: [String]) -> String {
+        let joined = permissionNames.joined(separator: self[.listSeparator])
+        switch language {
+        case .english:
+            return "○ Permissions needed: \(joined)"
+        case .french:
+            return "○ Autorisations requises\u{202F}: \(joined)"
+        case .simplifiedChinese:
+            return "○ 系统权限：\(joined)待授权"
+        }
+    }
+
+    public func mappingCustomCurrent(_ encodedAction: String) -> String {
+        switch language {
+        case .english:
+            return "Custom: \(encodedAction)"
+        case .french:
+            return "Personnalisé\u{202F}: \(encodedAction)"
+        case .simplifiedChinese:
+            return "自定义: \(encodedAction)"
+        }
+    }
+
+    public func customTitle(_ controlName: String) -> String {
+        switch language {
+        case .english:
+            return "Customize \(controlName)"
+        case .french:
+            return "Personnaliser «\u{00A0}\(controlName)\u{00A0}»"
+        case .simplifiedChinese:
+            return "自定义 \(controlName)"
+        }
+    }
+
+    public func menuFirmwareVersion(_ version: String) -> String {
+        switch language {
+        case .english:
+            return "Firmware version: \(version)"
+        case .french:
+            return "Version du firmware\u{202F}: \(version)"
+        case .simplifiedChinese:
+            return "固件版本: \(version)"
+        }
+    }
+
+    public func menuSerialNumber(_ serial: String) -> String {
+        switch language {
+        case .english:
+            return "Serial number: \(serial)"
+        case .french:
+            return "Numéro de série\u{202F}: \(serial)"
+        case .simplifiedChinese:
+            return "序列号: \(serial)"
+        }
     }
 }
 
-/// Internal shorthand used across VibeKeyCore.
-func tr(_ key: L10nKey, _ args: CustomStringConvertible...) -> String {
-    VibeKeyLocalization.format(VibeKeyLocalization.template(key), args)
-}
-
-/// Every user-facing string. Add a case here, then the compiler will require
-/// a translation in each `Localization+*.swift` table.
+/// Every static user-facing string. Add a case here, then the compiler will
+/// require a translation in each `Localization+*.swift` table.
+/// Parameterized strings live as typed methods on `VibeKeyStrings`.
 public enum L10nKey: String, CaseIterable, Sendable {
     // Generic
     case deviceName
-    case labelValue
     case listSeparator
     case save
     case cancel
@@ -99,7 +226,6 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case loading
     case charging
     case onBattery
-    case batteryValue
 
     // Field labels
     case labelBattery
@@ -131,7 +257,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case micOn
     case micMuted
 
-    // Input controls
+    // Controls
     case controlTopButton
     case controlMiddleButton
     case controlBottomButton
@@ -164,7 +290,6 @@ public enum L10nKey: String, CaseIterable, Sendable {
     // Permissions
     case permissionInputMonitoring
     case permissionAccessibility
-    case permissionSettingsTitle
     case permissionInputMonitoringUsage
     case permissionAccessibilityUsage
     case permissionGranted
@@ -173,17 +298,14 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case permissionChecking
     case permissionCheckAndGrant
     case permissionOpenSettings
-    case permissionTooltipGranted
-    case permissionTooltipMissing
     case permissionAllGranted
-    case permissionMissing
 
     // Shortcut recorder
     case recorderPrompt
     case recorderCancelled
     case recorderUnsupported
 
-    // Settings panel
+    // Settings panel chrome
     case panelSubtitle
     case panelDetecting
     case panelPressToWake
@@ -204,17 +326,15 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case buttonCheckUpdates
     case longConnectMode
 
-    // Mapping
+    // Custom action dialog
     case mappingCustomItem
     case mappingCustomButton
-    case mappingCustomCurrent
-    case customTitle
     case customMessage
     case customPlaceholder
     case customInvalidTitle
     case customInvalidMessage
 
-    // Hardware options
+    // Hardware controls
     case hwNoiseReduction
     case hwMicrophone
     case hwLED
@@ -237,9 +357,7 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case sleep2Hours
     case sleep4Hours
 
-    // Status bar context menu
-    case menuFirmwareVersion
-    case menuSerialNumber
+    // Context menu
     case menuOpenPanel
     case menuCheckPermissions
     case menuKeyMapping

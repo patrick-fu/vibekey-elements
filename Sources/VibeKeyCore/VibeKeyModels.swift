@@ -19,15 +19,20 @@ public enum InputControl: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    public var displayName: String {
+    public func displayName(in language: VibeKeyLanguage) -> String {
+        let strings = VibeKeyStrings(language: language)
         switch self {
-        case .topButton: return tr(.controlTopButton)
-        case .middleButton: return tr(.controlMiddleButton)
-        case .bottomButton: return tr(.controlBottomButton)
-        case .knobPress: return tr(.controlKnobPress)
-        case .knobLeft: return tr(.controlKnobLeft)
-        case .knobRight: return tr(.controlKnobRight)
+        case .topButton: return strings[.controlTopButton]
+        case .middleButton: return strings[.controlMiddleButton]
+        case .bottomButton: return strings[.controlBottomButton]
+        case .knobPress: return strings[.controlKnobPress]
+        case .knobLeft: return strings[.controlKnobLeft]
+        case .knobRight: return strings[.controlKnobRight]
         }
+    }
+
+    public var displayName: String {
+        displayName(in: VibeKeyLocalization.language)
     }
 }
 
@@ -121,13 +126,18 @@ public enum LEDMode: String, Codable, CaseIterable, Sendable {
     case breathing = "breathing"
     case off = "off"
 
-    public var displayName: String {
+    public func displayName(in language: VibeKeyLanguage) -> String {
+        let strings = VibeKeyStrings(language: language)
         switch self {
-        case .auto: return tr(.ledAuto)
-        case .solid: return tr(.ledSolid)
-        case .breathing: return tr(.ledBreathing)
-        case .off: return tr(.ledOff)
+        case .auto: return strings[.ledAuto]
+        case .solid: return strings[.ledSolid]
+        case .breathing: return strings[.ledBreathing]
+        case .off: return strings[.ledOff]
         }
+    }
+
+    public var displayName: String {
+        displayName(in: VibeKeyLocalization.language)
     }
 }
 
@@ -159,23 +169,28 @@ public enum PresetAction: String, CaseIterable, Codable, Sendable {
     case volumeDown = "volumeDown"
     case none = "none"
 
-    public var displayName: String {
+    public func displayName(in language: VibeKeyLanguage) -> String {
+        let strings = VibeKeyStrings(language: language)
         switch self {
-        case .fn: return tr(.presetFn)
-        case .enter: return tr(.presetEnter)
-        case .cmdDelete: return tr(.presetCmdDelete)
-        case .scrollUp: return tr(.presetScrollUp)
-        case .scrollDown: return tr(.presetScrollDown)
-        case .selectAll: return tr(.presetSelectAll)
-        case .copy: return tr(.presetCopy)
-        case .paste: return tr(.presetPaste)
-        case .undo: return tr(.presetUndo)
-        case .playPause: return tr(.presetPlayPause)
-        case .mute: return tr(.presetMute)
-        case .volumeUp: return tr(.presetVolumeUp)
-        case .volumeDown: return tr(.presetVolumeDown)
-        case .none: return tr(.presetNone)
+        case .fn: return strings[.presetFn]
+        case .enter: return strings[.presetEnter]
+        case .cmdDelete: return strings[.presetCmdDelete]
+        case .scrollUp: return strings[.presetScrollUp]
+        case .scrollDown: return strings[.presetScrollDown]
+        case .selectAll: return strings[.presetSelectAll]
+        case .copy: return strings[.presetCopy]
+        case .paste: return strings[.presetPaste]
+        case .undo: return strings[.presetUndo]
+        case .playPause: return strings[.presetPlayPause]
+        case .mute: return strings[.presetMute]
+        case .volumeUp: return strings[.presetVolumeUp]
+        case .volumeDown: return strings[.presetVolumeDown]
+        case .none: return strings[.presetNone]
         }
+    }
+
+    public var displayName: String {
+        displayName(in: VibeKeyLocalization.language)
     }
 
     public var actionConfig: ActionConfig {
@@ -325,5 +340,38 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
         case .knobRight: knobRight = action
         case .knobPress: knobPress = action
         }
+    }
+
+    /// Returns a copy with all button and knob mappings restored to factory defaults,
+    /// preserving hardware and connection settings.
+    public func resettingKeyMappingsToDefaults() -> VibeKeyConfiguration {
+        let defaults = VibeKeyConfiguration()
+        return VibeKeyConfiguration(
+            topButton: defaults.topButton,
+            middleButton: defaults.middleButton,
+            bottomButton: defaults.bottomButton,
+            knobLeft: defaults.knobLeft,
+            knobRight: defaults.knobRight,
+            knobPress: defaults.knobPress,
+            micNoiseReduction: micNoiseReduction,
+            micEnabled: micEnabled,
+            ledMode: ledMode,
+            standbySeconds: standbySeconds,
+            sleepSeconds: sleepSeconds,
+            longConnectedMode: longConnectedMode
+        )
+    }
+
+    /// Returns a copy with hardware parameters (noise reduction, mic, LED, standby, sleep)
+    /// restored to factory defaults, preserving key mappings and connection mode.
+    public func resettingHardwareSettingsToDefaults() -> VibeKeyConfiguration {
+        let defaults = VibeKeyConfiguration()
+        var copy = self
+        copy.micNoiseReduction = defaults.micNoiseReduction
+        copy.micEnabled = defaults.micEnabled
+        copy.ledMode = defaults.ledMode
+        copy.standbySeconds = defaults.standbySeconds
+        copy.sleepSeconds = defaults.sleepSeconds
+        return copy
     }
 }

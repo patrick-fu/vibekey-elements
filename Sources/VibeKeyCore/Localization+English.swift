@@ -2,7 +2,6 @@ extension VibeKeyLocalization {
     static func englishString(_ key: L10nKey) -> String {
         switch key {
         case .deviceName: return "Ulanzi AU05"
-        case .labelValue: return "%1$@: %2$@"
         case .listSeparator: return ", "
         case .save: return "Save"
         case .cancel: return "Cancel"
@@ -11,7 +10,6 @@ extension VibeKeyLocalization {
         case .loading: return "Loading…"
         case .charging: return "Charging"
         case .onBattery: return "On battery"
-        case .batteryValue: return "%1$@%% (%2$@, %3$@mV)"
 
         case .labelBattery: return "Battery"
         case .labelStatus: return "Status"
@@ -70,7 +68,6 @@ extension VibeKeyLocalization {
 
         case .permissionInputMonitoring: return "Input Monitoring"
         case .permissionAccessibility: return "Accessibility"
-        case .permissionSettingsTitle: return "%@ Settings…"
         case .permissionInputMonitoringUsage: return "Reads VibeKey button, knob and device events"
         case .permissionAccessibilityUsage: return "Turns VibeKey actions into system keystrokes"
         case .permissionGranted: return "Granted"
@@ -79,10 +76,7 @@ extension VibeKeyLocalization {
         case .permissionChecking: return "Checking"
         case .permissionCheckAndGrant: return "Check & Grant…"
         case .permissionOpenSettings: return "Open Settings…"
-        case .permissionTooltipGranted: return "Open %@ settings"
-        case .permissionTooltipMissing: return "%1$@. Click to open %2$@ settings."
         case .permissionAllGranted: return "● Permissions: all granted"
-        case .permissionMissing: return "○ Permissions needed: %@"
 
         case .recorderPrompt: return "Press a shortcut…"
         case .recorderCancelled: return "Recording cancelled"
@@ -110,8 +104,6 @@ extension VibeKeyLocalization {
 
         case .mappingCustomItem: return "Custom action"
         case .mappingCustomButton: return "Custom…"
-        case .mappingCustomCurrent: return "Custom: %@"
-        case .customTitle: return "Customize %@"
         case .customMessage: return "Click the recorder above, then press a key combination. Below you can also type WheelUp/WheelDown or a shell command starting with $."
         case .customPlaceholder: return "⌘ Shift T, WheelUp or $ open -a Terminal"
         case .customInvalidTitle: return "Invalid action format"
@@ -139,8 +131,6 @@ extension VibeKeyLocalization {
         case .sleep2Hours: return "2 hours"
         case .sleep4Hours: return "4 hours"
 
-        case .menuFirmwareVersion: return "Firmware version: %@"
-        case .menuSerialNumber: return "Serial number: %@"
         case .menuOpenPanel: return "Open Control Panel…"
         case .menuCheckPermissions: return "Check Permissions…"
         case .menuKeyMapping: return "Key Mapping"
