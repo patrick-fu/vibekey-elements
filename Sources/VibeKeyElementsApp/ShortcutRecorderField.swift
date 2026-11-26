@@ -4,13 +4,16 @@ import VibeKeyCore
 
 final class ShortcutRecorderField: NSButton {
     private let strings: VibeKeyStrings
-    private var recordingBuffer = ShortcutRecordingBuffer()
+    private let allowStandaloneModifier: Bool
+    private var recordingBuffer: ShortcutRecordingBuffer
     private(set) var recordedAction: ActionConfig?
     var onRecorded: ((ActionConfig) -> Void)?
     private(set) var isRecording = false
 
-    init(displayText: String, strings: VibeKeyStrings = .current) {
+    init(displayText: String, strings: VibeKeyStrings = .current, allowStandaloneModifier: Bool = false) {
         self.strings = strings
+        self.allowStandaloneModifier = allowStandaloneModifier
+        self.recordingBuffer = ShortcutRecordingBuffer(allowStandaloneModifier: allowStandaloneModifier)
         super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 28))
         bezelStyle = .rounded
         setButtonType(.momentaryPushIn)
@@ -63,13 +66,13 @@ final class ShortcutRecorderField: NSButton {
     }
 
     private func startRecording() {
-        recordingBuffer = ShortcutRecordingBuffer()
+        recordingBuffer = ShortcutRecordingBuffer(allowStandaloneModifier: allowStandaloneModifier)
         isRecording = true
         updateTitle(strings[.recorderPrompt])
     }
 
     private func stopRecording(message: String) {
-        recordingBuffer = ShortcutRecordingBuffer()
+        recordingBuffer = ShortcutRecordingBuffer(allowStandaloneModifier: allowStandaloneModifier)
         isRecording = false
         updateTitle(message)
     }
@@ -81,7 +84,7 @@ final class ShortcutRecorderField: NSButton {
         }
 
         recordedAction = shortcut.actionConfig
-        recordingBuffer = ShortcutRecordingBuffer()
+        recordingBuffer = ShortcutRecordingBuffer(allowStandaloneModifier: allowStandaloneModifier)
         isRecording = false
         updateTitle(shortcut.display)
         onRecorded?(shortcut.actionConfig)

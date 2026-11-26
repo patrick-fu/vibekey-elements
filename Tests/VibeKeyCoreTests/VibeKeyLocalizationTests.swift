@@ -93,6 +93,11 @@ final class VibeKeyLocalizationTests: XCTestCase {
         XCTAssertEqual(en.mappingCustomCurrent("⌘C"), "Custom: ⌘C")
         XCTAssertEqual(fr.mappingCustomCurrent("⌘C"), "Personnalisé\u{202F}: ⌘C")
         XCTAssertEqual(fr.customTitle("Touche haut (K1)"), "Personnaliser «\u{00A0}Touche haut (K1)\u{00A0}»")
+        XCTAssertEqual(en.customTitle("Top button (K1)", isLongPress: true), "Customize Top button (K1) (Long Press)")
+        XCTAssertEqual(fr.customTitle("Touche haut (K1)", isLongPress: true), "Personnaliser «\u{00A0}Touche haut (K1)\u{00A0}» (appui long)")
+        XCTAssertEqual(zh.customTitle("上键 (K1)", isLongPress: true), "自定义 上键 (K1)（长按）")
+        XCTAssertEqual(en.longPressFlashLabel("K1"), "K1+")
+        XCTAssertEqual(zh.longPressFlashLabel("K1"), "K1长")
         XCTAssertEqual(en.menuFirmwareVersion("1.2.0"), "Firmware version: 1.2.0")
         XCTAssertEqual(fr.menuSerialNumber("VK-05A"), "Numéro de série\u{202F}: VK-05A")
     }

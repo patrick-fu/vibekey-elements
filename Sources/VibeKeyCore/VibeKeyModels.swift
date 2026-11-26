@@ -19,6 +19,17 @@ public enum InputControl: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// True for controls that emit paired key-down / key-up events and can
+    /// distinguish short vs. long presses.
+    public var supportsLongPress: Bool {
+        switch self {
+        case .topButton, .middleButton, .bottomButton, .knobPress:
+            return true
+        case .knobLeft, .knobRight:
+            return false
+        }
+    }
+
     public func displayName(in language: VibeKeyLanguage) -> String {
         let strings = VibeKeyStrings(language: language)
         switch self {
@@ -398,7 +409,11 @@ public struct VibeKeyConfiguration: Codable, Equatable, Sendable {
             ledMode: ledMode,
             standbySeconds: standbySeconds,
             sleepSeconds: sleepSeconds,
-            longConnectedMode: longConnectedMode
+            longConnectedMode: longConnectedMode,
+            topButtonLongPress: nil,
+            middleButtonLongPress: nil,
+            bottomButtonLongPress: nil,
+            knobPressLongPress: nil
         )
     }
 

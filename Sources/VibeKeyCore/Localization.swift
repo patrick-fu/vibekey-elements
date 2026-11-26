@@ -179,13 +179,32 @@ public struct VibeKeyStrings: Equatable, Sendable {
     }
 
     public func customTitle(_ controlName: String) -> String {
-        switch language {
-        case .english:
+        customTitle(controlName, isLongPress: false)
+    }
+
+    public func customTitle(_ controlName: String, isLongPress: Bool) -> String {
+        switch (language, isLongPress) {
+        case (.english, false):
             return "Customize \(controlName)"
-        case .french:
+        case (.english, true):
+            return "Customize \(controlName) (Long Press)"
+        case (.french, false):
             return "Personnaliser «\u{00A0}\(controlName)\u{00A0}»"
-        case .simplifiedChinese:
+        case (.french, true):
+            return "Personnaliser «\u{00A0}\(controlName)\u{00A0}» (appui long)"
+        case (.simplifiedChinese, false):
             return "自定义 \(controlName)"
+        case (.simplifiedChinese, true):
+            return "自定义 \(controlName)（长按）"
+        }
+    }
+
+    public func longPressFlashLabel(_ controlLabel: String) -> String {
+        switch language {
+        case .english, .french:
+            return "\(controlLabel)+"
+        case .simplifiedChinese:
+            return "\(controlLabel)长"
         }
     }
 
@@ -326,9 +345,14 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case buttonCheckUpdates
     case longConnectMode
 
-    // Custom action dialog
+    // Custom action dialog & mapping grid
+    case mappingHeaderControl
+    case mappingHeaderShortPress
+    case mappingHeaderLongPress
+    case mappingLongPressNone
     case mappingCustomItem
     case mappingCustomButton
+    case buttonClearLongPress
     case customMessage
     case customPlaceholder
     case customInvalidTitle

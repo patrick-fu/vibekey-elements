@@ -92,6 +92,10 @@ public enum VibeKeyKeyMap {
 }
 public enum ActionConfigTextCodec {
     public static func parse(_ raw: String) throws -> ActionConfig {
+        try parse(raw, allowStandaloneModifier: false)
+    }
+
+    public static func parse(_ raw: String, allowStandaloneModifier: Bool) throws -> ActionConfig {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.isEmpty { throw ActionConfigTextCodecError.emptyAction }
         if text.hasPrefix("$") || text.lowercased().hasPrefix("sh ") {
@@ -121,9 +125,10 @@ public enum ActionConfigTextCodec {
             }
         }
 
-        if target == nil, modifiers == ["fn"] {
-            target = "fn"
-            modifiers.remove("fn")
+        if target == nil, modifiers.count == 1, let onlyModifier = modifiers.first {
+            if onlyModifier == "fn" || allowStandaloneModifier {
+                return .keySequence(keys: [onlyModifier])
+            }
         }
 
         guard let target else { throw ActionConfigTextCodecError.missingTargetKey }
@@ -144,7 +149,11 @@ public enum ActionConfigTextCodec {
                 "command": "⌘", "shift": "⇧", "option": "⌥", "control": "⌃", "fn": "Fn"
             ]
             let modifiers = keys.dropLast().compactMap { symbol[$0.lowercased()] }
-            let target = keys.last.map { $0.lowercased() == "fn" ? "Fn" : $0.uppercased() } ?? ""
+            let target = keys.last.map { key -> String in
+                let lower = key.lowercased()
+                if let mapped = symbol[lower] { return mapped }
+                return key.uppercased()
+            } ?? ""
             return (modifiers + [target]).joined(separator: " ")
         case let .mouseWheel(direction):
             return direction == .up ? "WheelUp" : "WheelDown"

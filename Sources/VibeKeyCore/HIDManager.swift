@@ -39,6 +39,8 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
     // State guards & counters
     private var heartbeatInFlight = false
     private var onlineGeneration: UInt64 = 0
+    private var deviceSessionGeneration: UInt64 = 0
+    private var isHostSleeping = false
 
     // Persistent heap buffers for IOHID input report callbacks
     private var inputReportBuffer: UnsafeMutablePointer<UInt8>?
@@ -212,6 +214,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             return
         }
         powerLogger.notice("macOS host sleep/power-off notification received. Forcing standby power saving mode.")
+        isHostSleeping = true
         enterPowerSaving(isStandby: true, reason: "HostSleep")
         // Re-entering is idempotent, so explicitly promote a prior idle standby
         // to the stricter host-sleep boundary before power state can resume.
@@ -223,6 +226,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
             DispatchQueue.main.async { self.hostDidWake() }
             return
         }
+        isHostSleeping = false
         powerLogger.notice("macOS host did wake notification received. Current isPowerSaving=\(self.isPowerSaving, privacy: .public). Maintaining zero-downlink standby to prevent DarkWake RF wakeups.")
         // If device is in power saving, remain in standby to prevent macOS DarkWake
         // and background maintenance from emitting RF packets and waking VibeKey overnight.
@@ -337,6 +341,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
 
         guard connectedDevice == nil else { return }
         connectedDevice = device
+        deviceSessionGeneration &+= 1
 
         attachInputDevice(device)
         currentSnapshot.isConnected = true
@@ -391,6 +396,7 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         detachInputDevice(device)
         connectedDevice = nil
         onlineGeneration &+= 1
+        deviceSessionGeneration &+= 1
         isPowerSaving = false
         currentSnapshot = VibeKeyDeviceInfoSnapshot(isConnected: false)
         eventLogger?.log("device.removed")
@@ -559,7 +565,11 @@ public final class VibeKeyHIDManager: @unchecked Sendable {
         // 1. Check for physical events (K1, K2, K3, Knob)
         if let event = VibeKeyParser.parseDeviceEvent(plaintext: plaintext) {
             if case let .key(control, phase) = event {
+                let sessionGeneration = self.deviceSessionGeneration
                 DispatchQueue.main.async {
+                    guard self.connectedDevice != nil,
+                          self.deviceSessionGeneration == sessionGeneration,
+                          !self.isHostSleeping else { return }
                     self.lastActivityTime = Date()
                     if self.isPowerSaving {
                         powerLogger.info("Physical input detected (\(control.rawValue, privacy: .public)) while in standby. Resuming.")

@@ -4,10 +4,14 @@ import Foundation
 import Sparkle
 import VibeKeyCore
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverDelegate {
     private let processStartedAt = Date()
     private let strings = VibeKeyStrings.current
     private let permissionRecovery = PermissionRecoveryCoordinator()
+    private lazy var inputDispatcher = VibeKeyInputDispatcher { [weak self] trigger in
+        self?.handleInputTrigger(trigger)
+    }
 
     private var updaterController: SPUStandardUpdaterController?
     private var statusItem: NSStatusItem?
@@ -16,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
     private var flashTimer: Timer?
     private var workspaceObservers: [NSObjectProtocol] = []
     private var isHIDRecoveryWaiting = false
+    private var isHostSuspended = false
 
     private var config = VibeKeyConfiguration()
     private var currentSnapshot = VibeKeyDeviceInfoSnapshot()
@@ -46,6 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
     func applicationWillTerminate(_ notification: Notification) {
         workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         workspaceObservers.removeAll()
+        inputDispatcher.cancelAll()
+        ActionPerformer.releaseAllHolds(synchronous: true)
         permissionRecovery.stop()
         VibeKeyHIDManager.shared.stop()
     }
@@ -114,22 +121,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         }
     }
 
+    private nonisolated static func onMain(_ work: @escaping @MainActor () -> Void) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated(work)
+        } else {
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated(work)
+            }
+        }
+    }
+
     private func setupWorkspaceObservers() {
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers.append(center.addObserver(
             forName: NSWorkspace.willSleepNotification,
             object: nil,
             queue: .main
-        ) { _ in
-            VibeKeyHIDManager.shared.hostWillSleep()
+        ) { [weak self] _ in
+            Self.onMain {
+                self?.isHostSuspended = true
+                self?.inputDispatcher.cancelAll()
+                ActionPerformer.releaseAllHolds()
+                VibeKeyHIDManager.shared.hostWillSleep()
+            }
         })
 
         workspaceObservers.append(center.addObserver(
             forName: NSWorkspace.willPowerOffNotification,
             object: nil,
             queue: .main
-        ) { _ in
-            VibeKeyHIDManager.shared.hostWillSleep()
+        ) { [weak self] _ in
+            Self.onMain {
+                self?.isHostSuspended = true
+                self?.inputDispatcher.cancelAll()
+                ActionPerformer.releaseAllHolds()
+                VibeKeyHIDManager.shared.hostWillSleep()
+            }
         })
 
         workspaceObservers.append(center.addObserver(
@@ -137,7 +164,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.logDisplayLifecycle("display.sleep")
+            Self.onMain {
+                self?.logDisplayLifecycle("display.sleep")
+            }
         })
 
         workspaceObservers.append(center.addObserver(
@@ -145,15 +174,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.logDisplayLifecycle("display.wake")
+            Self.onMain {
+                self?.logDisplayLifecycle("display.wake")
+            }
         })
 
         workspaceObservers.append(center.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
             queue: .main
-        ) { _ in
-            VibeKeyHIDManager.shared.hostDidWake()
+        ) { [weak self] _ in
+            Self.onMain {
+                self?.isHostSuspended = false
+                VibeKeyHIDManager.shared.hostDidWake()
+            }
         })
     }
 
@@ -517,58 +551,102 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         updateStatusItemDisplay(overrideText: "[\(label)]")
 
         flashTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [weak self] _ in
-            self?.updateStatusItemDisplay()
+            Self.onMain {
+                self?.updateStatusItemDisplay()
+            }
         }
     }
 
     private func setupHIDListeners() {
         VibeKeyHIDManager.shared.onDeviceConnected = { [weak self] in
-            guard let self = self else { return }
-            self.currentSnapshot.isConnected = true
-            self.updateStatusItemDisplay()
-            self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
+            Self.onMain {
+                guard let self else { return }
+                self.currentSnapshot.isConnected = true
+                self.updateStatusItemDisplay()
+                self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
+            }
         }
 
         VibeKeyHIDManager.shared.onDeviceDisconnected = { [weak self] in
-            guard let self = self else { return }
-            self.currentSnapshot = VibeKeyDeviceInfoSnapshot(isConnected: false)
-            self.updateStatusItemDisplay()
-            self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
+            Self.onMain {
+                guard let self else { return }
+                self.inputDispatcher.cancelAll()
+                ActionPerformer.releaseAllHolds()
+                self.currentSnapshot = VibeKeyDeviceInfoSnapshot(isConnected: false)
+                self.updateStatusItemDisplay()
+                self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
+            }
         }
 
         VibeKeyHIDManager.shared.onPowerSavingChanged = { [weak self] _ in
-            guard let self = self else { return }
-            // Snapshot standby is the hardware display state; menu chrome tracks
-            // the manager's local offline-handoff state separately.
-            self.updateStatusItemDisplay()
-            self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
+            Self.onMain {
+                guard let self else { return }
+                // Snapshot standby is the hardware display state; menu chrome tracks
+                // the manager's local offline-handoff state separately.
+                self.updateStatusItemDisplay()
+                self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
+            }
         }
 
         VibeKeyHIDManager.shared.onDeviceInfoUpdated = { [weak self] snapshot in
-            guard let self = self else { return }
-            self.currentSnapshot = snapshot
-            self.updateStatusItemDisplay()
-            self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
+            Self.onMain {
+                guard let self else { return }
+                if snapshot.isDeviceOn == false {
+                    self.inputDispatcher.cancelAll()
+                    ActionPerformer.releaseAllHolds()
+                }
+                self.currentSnapshot = snapshot
+                self.updateStatusItemDisplay()
+                self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
+            }
         }
 
         VibeKeyHIDManager.shared.onBatteryUpdated = { [weak self] battery in
-            guard let self = self else { return }
-            self.currentSnapshot.battery = battery
-            self.updateStatusItemDisplay()
-            self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
+            Self.onMain {
+                guard let self else { return }
+                self.currentSnapshot.battery = battery
+                self.updateStatusItemDisplay()
+                self.settingsVC?.updateState(config: self.config, snapshot: self.currentSnapshot)
+            }
         }
 
         VibeKeyHIDManager.shared.onEventReceived = { [weak self] control, phase in
-            guard let self = self else { return }
-            if phase == .down {
-                self.triggerKeyFlash(control.displayLabel)
-                let action = self.config.action(for: control)
-                VibeKeyHIDManager.shared.eventLogger?.log(
-                    "action.triggered",
-                    fields: ["control": control.rawValue]
-                )
-                ActionPerformer.perform(action)
+            Self.onMain {
+                guard let self else { return }
+                guard !self.isHostSuspended, self.currentSnapshot.isConnected else { return }
+                self.inputDispatcher.handle(control: control, phase: phase, configuration: self.config)
             }
+        }
+    }
+
+    private func handleInputTrigger(_ trigger: VibeKeyInputTrigger) {
+        switch trigger {
+        case let .shortPress(control, action):
+            triggerKeyFlash(control.displayLabel)
+            VibeKeyHIDManager.shared.eventLogger?.log(
+                "action.triggered",
+                fields: ["control": control.rawValue, "longPress": "false"]
+            )
+            ActionPerformer.perform(action)
+
+        case let .longPressTap(control, action):
+            triggerKeyFlash(strings.longPressFlashLabel(control.displayLabel))
+            VibeKeyHIDManager.shared.eventLogger?.log(
+                "action.triggered",
+                fields: ["control": control.rawValue, "longPress": "true"]
+            )
+            ActionPerformer.perform(action)
+
+        case let .longPressHoldBegin(control, action):
+            triggerKeyFlash(strings.longPressFlashLabel(control.displayLabel))
+            VibeKeyHIDManager.shared.eventLogger?.log(
+                "action.triggered",
+                fields: ["control": control.rawValue, "longPress": "true", "hold": "true"]
+            )
+            ActionPerformer.beginHold(action)
+
+        case let .longPressHoldEnd(_, action):
+            ActionPerformer.endHold(action)
         }
     }
 
@@ -576,11 +654,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUStandardUserDriverD
         NSApplication.shared.terminate(nil)
     }
 
-    var supportsGentleScheduledUpdateReminders: Bool {
+    nonisolated var supportsGentleScheduledUpdateReminders: Bool {
         return true
     }
 
-    func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState) {
-        NSApplication.shared.activate(ignoringOtherApps: true)
+    nonisolated func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState) {
+        Self.onMain {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        }
     }
 }

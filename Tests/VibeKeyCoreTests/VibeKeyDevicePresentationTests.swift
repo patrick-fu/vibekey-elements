@@ -100,13 +100,17 @@ final class VibeKeyDevicePresentationTests: XCTestCase {
             ledMode: .breathing,
             standbySeconds: 1800,
             sleepSeconds: 7200,
-            longConnectedMode: true
+            longConnectedMode: true,
+            topButtonLongPress: .keySequence(keys: ["fn"]),
+            knobPressLongPress: .shellCommand(command: "open -a Terminal")
         )
 
         let keysReset = custom.resettingKeyMappingsToDefaults()
         let defaults = VibeKeyConfiguration()
         XCTAssertEqual(keysReset.topButton, defaults.topButton)
         XCTAssertEqual(keysReset.knobPress, defaults.knobPress)
+        XCTAssertNil(keysReset.topButtonLongPress)
+        XCTAssertNil(keysReset.knobPressLongPress)
         XCTAssertEqual(keysReset.micNoiseReduction, 3)
         XCTAssertEqual(keysReset.micEnabled, false)
         XCTAssertEqual(keysReset.ledMode, .breathing)
@@ -117,6 +121,8 @@ final class VibeKeyDevicePresentationTests: XCTestCase {
         let hwReset = custom.resettingHardwareSettingsToDefaults()
         XCTAssertEqual(hwReset.topButton, custom.topButton)
         XCTAssertEqual(hwReset.knobPress, custom.knobPress)
+        XCTAssertEqual(hwReset.topButtonLongPress, custom.topButtonLongPress)
+        XCTAssertEqual(hwReset.knobPressLongPress, custom.knobPressLongPress)
         XCTAssertEqual(hwReset.longConnectedMode, true)
         XCTAssertEqual(hwReset.micNoiseReduction, defaults.micNoiseReduction)
         XCTAssertEqual(hwReset.micEnabled, defaults.micEnabled)
