@@ -102,6 +102,13 @@ final class VibeKeyAblationTests: XCTestCase {
         XCTAssertEqual(emptyConfig.standbySeconds, 300)
         XCTAssertEqual(emptyConfig.sleepSeconds, 3600)
         XCTAssertEqual(emptyConfig.longConnectedMode, false)
+        // Long-press actions must default to nil (disabled) for legacy payloads.
+        XCTAssertNil(emptyConfig.topButtonLongPress)
+        XCTAssertNil(emptyConfig.middleButtonLongPress)
+        XCTAssertNil(emptyConfig.bottomButtonLongPress)
+        XCTAssertNil(emptyConfig.knobPressLongPress)
+        XCTAssertNil(emptyConfig.longPressAction(for: .topButton))
+        XCTAssertNil(emptyConfig.longPressAction(for: .knobLeft))
 
         // 2. Legacy v1 JSON (pre-microphone & pre-sleep parameters)
         let legacyJson = """
@@ -120,6 +127,9 @@ final class VibeKeyAblationTests: XCTestCase {
         XCTAssertEqual(legacyConfig.middleButton, .keySequence(keys: ["f19"]))
         XCTAssertEqual(legacyConfig.bottomButton, .shellCommand(command: "echo hello"))
         XCTAssertEqual(legacyConfig.knobPress, .keySequence(keys: ["command", "space"]))
+        // Legacy configs predate long-press actions; they must decode as disabled.
+        XCTAssertNil(legacyConfig.topButtonLongPress)
+        XCTAssertNil(legacyConfig.knobPressLongPress)
         // Missing fields must default gracefully to factory values
         XCTAssertEqual(legacyConfig.micNoiseReduction, 0)
         XCTAssertEqual(legacyConfig.micEnabled, true)
