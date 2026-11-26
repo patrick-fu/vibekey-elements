@@ -103,8 +103,13 @@ extension VibeKeyLocalization {
         case .buttonCheckUpdates: return "检查更新…"
         case .longConnectMode: return "长连保活（暂停闲置省电）"
 
+        case .mappingHeaderControl: return "按键"
+        case .mappingHeaderShortPress: return "短按"
+        case .mappingHeaderLongPress: return "长按 (0.2 秒)"
+        case .mappingLongPressNone: return "无（禁用长按）"
         case .mappingCustomItem: return "自定义动作"
         case .mappingCustomButton: return "自定义…"
+        case .buttonClearLongPress: return "清除长按"
         case .customMessage: return "点击上方录制框，然后按下组合键。下方也可输入 WheelUp/Down 或 $ 开头的 Shell 命令。"
         case .customPlaceholder: return "⌘ Shift T、WheelUp 或 $ open -a Terminal"
         case .customInvalidTitle: return "动作格式无效"

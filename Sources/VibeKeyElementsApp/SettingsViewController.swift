@@ -24,6 +24,8 @@ final class SettingsViewController: NSViewController {
 
     private var popupButtons: [InputControl: NSPopUpButton] = [:]
     private var customButtons: [InputControl: NSButton] = [:]
+    private var longPopupButtons: [InputControl: NSPopUpButton] = [:]
+    private var longCustomButtons: [InputControl: NSButton] = [:]
     private var permissionStatusLabels: [VibeKeyPermission: NSTextField] = [:]
     private var permissionButtons: [VibeKeyPermission: NSButton] = [:]
     private var permissionRefreshTimers: [Timer] = []
@@ -239,7 +241,8 @@ final class SettingsViewController: NSViewController {
         let contentWidth = max(440, ceil(requiredControlWidth) + 36)
         statusLabel.preferredMaxLayoutWidth = contentWidth - 36
         hardwareInfoLabel.preferredMaxLayoutWidth = contentWidth - 36
-        let preferred = NSSize(width: contentWidth, height: 736)
+        let contentHeight = max(736, ceil(mainStack.fittingSize.height) + 28)
+        let preferred = NSSize(width: contentWidth, height: contentHeight)
         root.frame = NSRect(origin: .zero, size: preferred)
         self.preferredContentSize = preferred
 
@@ -306,51 +309,95 @@ final class SettingsViewController: NSViewController {
             .knobLeft, .knobRight, .knobPress
         ]
 
-        var rows: [[NSView]] = []
-        for control in controls {
-            let label = NSTextField(labelWithString: control.displayName(in: strings.language))
-            label.font = .systemFont(ofSize: 12, weight: .medium)
+        func makeColumnHeader(_ title: String) -> NSTextField {
+            let label = NSTextField(labelWithString: title)
+            label.font = .systemFont(ofSize: 11, weight: .semibold)
+            label.textColor = .secondaryLabelColor
+            return label
+        }
+
+        func makeMappingCell(control: InputControl, isLongPress: Bool) -> NSStackView {
+            let idPrefix = isLongPress ? "vibekey.long." : ""
+            let customPrefix = isLongPress ? "vibekey.long.custom." : "vibekey.custom."
 
             let popup = NSPopUpButton(frame: .zero, pullsDown: false)
             popup.font = .systemFont(ofSize: 12)
-            popup.identifier = NSUserInterfaceItemIdentifier(control.rawValue)
+            popup.identifier = NSUserInterfaceItemIdentifier("\(idPrefix)\(control.rawValue)")
             popup.target = self
             popup.action = #selector(handleMappingSelectionChanged(_:))
+
+            if isLongPress {
+                let noneItem = NSMenuItem(title: strings[.mappingLongPressNone], action: nil, keyEquivalent: "")
+                noneItem.representedObject = "none"
+                popup.menu?.addItem(noneItem)
+            }
 
             for preset in PresetAction.allCases {
                 let item = NSMenuItem(title: preset.displayName(in: strings.language), action: nil, keyEquivalent: "")
                 item.representedObject = preset
                 popup.menu?.addItem(item)
             }
+
             let customItem = NSMenuItem(title: strings[.mappingCustomItem], action: nil, keyEquivalent: "")
             customItem.representedObject = "custom"
-            customItem.identifier = NSUserInterfaceItemIdentifier("vibekey.custom.\(control.rawValue)")
+            customItem.identifier = NSUserInterfaceItemIdentifier("\(customPrefix)\(control.rawValue)")
             popup.menu?.addItem(customItem)
 
-            popup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+            popup.widthAnchor.constraint(greaterThanOrEqualToConstant: 155).isActive = true
             popup.heightAnchor.constraint(equalToConstant: 24).isActive = true
+
             let customButton = NSButton(
-                title: strings[.mappingCustomButton],
+                title: "…",
                 target: self,
                 action: #selector(handleCustomMappingClicked(_:))
             )
             customButton.bezelStyle = .rounded
-            customButton.font = .systemFont(ofSize: 11)
-            customButton.identifier = NSUserInterfaceItemIdentifier(control.rawValue)
-            customButtons[control] = customButton
-            popupButtons[control] = popup
-            let rowStack = NSStackView(views: [popup, customButton])
-            rowStack.orientation = .horizontal
-            rowStack.alignment = .centerY
-            rowStack.spacing = 6
-            rows.append([label, rowStack])
+            customButton.font = .systemFont(ofSize: 11, weight: .medium)
+            let customTitle = strings.customTitle(control.displayName(in: strings.language), isLongPress: isLongPress)
+            customButton.identifier = NSUserInterfaceItemIdentifier("\(idPrefix)\(control.rawValue)")
+            customButton.toolTip = customTitle
+            customButton.setAccessibilityLabel(customTitle)
+            customButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
+            customButton.heightAnchor.constraint(equalToConstant: 24).isActive = true
+
+            if isLongPress {
+                longPopupButtons[control] = popup
+                longCustomButtons[control] = customButton
+            } else {
+                popupButtons[control] = popup
+                customButtons[control] = customButton
+            }
+
+            let stack = NSStackView(views: [popup, customButton])
+            stack.orientation = .horizontal
+            stack.alignment = .centerY
+            stack.spacing = 4
+            return stack
+        }
+
+        var rows: [[NSView]] = [[
+            makeColumnHeader(strings[.mappingHeaderControl]),
+            makeColumnHeader(strings[.mappingHeaderShortPress]),
+            makeColumnHeader(strings[.mappingHeaderLongPress])
+        ]]
+
+        for control in controls {
+            let label = NSTextField(labelWithString: control.displayName(in: strings.language))
+            label.font = .systemFont(ofSize: 12, weight: .medium)
+
+            let shortCell = makeMappingCell(control: control, isLongPress: false)
+            let longCell: NSView = control.supportsLongPress
+                ? makeMappingCell(control: control, isLongPress: true)
+                : NSTextField(labelWithString: "")
+            rows.append([label, shortCell, longCell])
         }
 
         let grid = NSGridView(views: rows)
         grid.rowSpacing = 5
-        grid.columnSpacing = 16
+        grid.columnSpacing = 12
         grid.column(at: 0).xPlacement = .leading
         grid.column(at: 1).xPlacement = .fill
+        grid.column(at: 2).xPlacement = .fill
         return grid
     }
 
@@ -474,27 +521,22 @@ final class SettingsViewController: NSViewController {
         let reports = permissionCenter.check()
         applyPermissionReports(reports, notifyObserver: false)
 
-        // 1. Update mapping popup selections & checkmark states
+        // 1. Update short-press mapping popup selections & checkmark states
         for (control, popup) in popupButtons {
-            let action = config.action(for: control)
-            let matchingPreset = PresetAction.allCases.first(where: { $0.actionConfig == action })
-            for item in popup.itemArray {
-                if let preset = item.representedObject as? PresetAction {
-                    item.state = (matchingPreset == preset) ? .on : .off
-                }
-            }
-            let customItem = popup.itemArray.first {
-                $0.identifier?.rawValue == "vibekey.custom.\(control.rawValue)"
-            }
-            if let matchingPreset,
-               let matchingItem = popup.itemArray.first(where: { ($0.representedObject as? PresetAction) == matchingPreset }) {
-                customItem?.state = .off
-                popup.select(matchingItem)
-            } else {
-                customItem?.title = strings.mappingCustomCurrent(ActionConfigTextCodec.encode(action))
-                customItem?.state = .on
-                popup.select(customItem)
-            }
+            updateMappingPopup(
+                popup,
+                action: config.action(for: control),
+                customItemID: "vibekey.custom.\(control.rawValue)"
+            )
+        }
+
+        // 1b. Update long-press mapping popup selections & checkmark states
+        for (control, popup) in longPopupButtons {
+            updateMappingPopup(
+                popup,
+                action: config.longPressAction(for: control),
+                customItemID: "vibekey.long.custom.\(control.rawValue)"
+            )
         }
 
         // 2. Update NR popup
@@ -544,15 +586,66 @@ final class SettingsViewController: NSViewController {
         }
     }
 
-    @objc private func handleCustomMappingClicked(_ sender: NSButton) {
-        guard let rawID = sender.identifier?.rawValue,
-              let control = InputControl(rawValue: rawID) else { return }
-        let encoded = ActionConfigTextCodec.encode(config.action(for: control))
+    private func updateMappingPopup(
+        _ popup: NSPopUpButton,
+        action: ActionConfig?,
+        customItemID: String
+    ) {
+        let customItem = popup.itemArray.first { $0.identifier?.rawValue == customItemID }
+        guard let action else {
+            for item in popup.itemArray { item.state = .off }
+            customItem?.title = strings[.mappingCustomItem]
+            if let noneItem = popup.itemArray.first(where: { ($0.representedObject as? String) == "none" }) {
+                noneItem.state = .on
+                popup.select(noneItem)
+            }
+            return
+        }
+
+        let matchingPreset = PresetAction.allCases.first(where: { $0.actionConfig == action })
+        for item in popup.itemArray {
+            if let preset = item.representedObject as? PresetAction {
+                item.state = (matchingPreset == preset) ? .on : .off
+            } else {
+                item.state = .off
+            }
+        }
+
+        if let matchingPreset,
+           let matchingItem = popup.itemArray.first(where: { ($0.representedObject as? PresetAction) == matchingPreset }) {
+            customItem?.title = strings[.mappingCustomItem]
+            popup.select(matchingItem)
+        } else {
+            customItem?.title = strings.mappingCustomCurrent(ActionConfigTextCodec.encode(action))
+            customItem?.state = .on
+            popup.select(customItem)
+        }
+    }
+
+    private func parseMappingIdentifier(_ rawID: String?) -> (control: InputControl, isLongPress: Bool)? {
+        guard let rawID else { return nil }
+        let prefix = "vibekey.long."
+        let isLongPress = rawID.hasPrefix(prefix)
+        let controlRaw = isLongPress ? String(rawID.dropFirst(prefix.count)) : rawID
+        guard let control = InputControl(rawValue: controlRaw) else { return nil }
+        return (control, isLongPress)
+    }
+
+    private func openCustomMappingAlert(for control: InputControl, isLongPress: Bool) {
+        let currentAction = isLongPress
+            ? (config.longPressAction(for: control) ?? .keySequence(keys: []))
+            : config.action(for: control)
+        let encoded = ActionConfigTextCodec.encode(currentAction)
+
         let alert = NSAlert()
-        alert.messageText = strings.customTitle(control.displayName(in: strings.language))
+        alert.messageText = strings.customTitle(control.displayName(in: strings.language), isLongPress: isLongPress)
         alert.informativeText = strings[.customMessage]
 
-        let recorder = ShortcutRecorderField(displayText: encoded, strings: strings)
+        let recorder = ShortcutRecorderField(
+            displayText: encoded,
+            strings: strings,
+            allowStandaloneModifier: isLongPress
+        )
         let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
         input.placeholderString = strings[.customPlaceholder]
         input.stringValue = encoded
@@ -568,11 +661,30 @@ final class SettingsViewController: NSViewController {
         alert.accessoryView = accessory
         alert.addButton(withTitle: strings[.save])
         alert.addButton(withTitle: strings[.cancel])
+        if isLongPress {
+            alert.addButton(withTitle: strings[.buttonClearLongPress])
+        }
+
         NSApplication.shared.activate(ignoringOtherApps: true)
         alert.window.initialFirstResponder = recorder
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let response = alert.runModal()
+        if isLongPress, response == .alertThirdButtonReturn {
+            config.setLongPressAction(nil, for: control)
+            onConfigurationChanged?(config)
+            updateUI()
+            return
+        }
+        guard response == .alertFirstButtonReturn else {
+            updateUI()
+            return
+        }
         do {
-            config.setAction(try ActionConfigTextCodec.parse(input.stringValue), for: control)
+            let parsed = try ActionConfigTextCodec.parse(input.stringValue, allowStandaloneModifier: isLongPress)
+            if isLongPress {
+                config.setLongPressAction(parsed, for: control)
+            } else {
+                config.setAction(parsed, for: control)
+            }
             onConfigurationChanged?(config)
             updateUI()
         } catch {
@@ -580,20 +692,40 @@ final class SettingsViewController: NSViewController {
             failure.messageText = strings[.customInvalidTitle]
             failure.informativeText = strings[.customInvalidMessage]
             failure.runModal()
+            updateUI()
         }
     }
 
+    @objc private func handleCustomMappingClicked(_ sender: NSButton) {
+        guard let target = parseMappingIdentifier(sender.identifier?.rawValue) else { return }
+        openCustomMappingAlert(for: target.control, isLongPress: target.isLongPress)
+    }
+
     @objc private func handleMappingSelectionChanged(_ sender: NSPopUpButton) {
-        guard let rawId = sender.identifier?.rawValue,
-              let control = InputControl(rawValue: rawId) else { return }
-        guard let preset = sender.selectedItem?.representedObject as? PresetAction else {
-            // Selecting the display-only custom item must not replace the saved action.
+        guard let target = parseMappingIdentifier(sender.identifier?.rawValue) else { return }
+        if let preset = sender.selectedItem?.representedObject as? PresetAction {
+            if target.isLongPress {
+                config.setLongPressAction(preset.actionConfig, for: target.control)
+            } else {
+                config.setAction(preset.actionConfig, for: target.control)
+            }
+            onConfigurationChanged?(config)
             updateUI()
             return
         }
 
-        config.setAction(preset.actionConfig, for: control)
-        onConfigurationChanged?(config)
+        if target.isLongPress, (sender.selectedItem?.representedObject as? String) == "none" {
+            config.setLongPressAction(nil, for: target.control)
+            onConfigurationChanged?(config)
+            updateUI()
+            return
+        }
+
+        if (sender.selectedItem?.representedObject as? String) == "custom" {
+            openCustomMappingAlert(for: target.control, isLongPress: target.isLongPress)
+            return
+        }
+
         updateUI()
     }
 

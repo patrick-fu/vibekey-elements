@@ -104,8 +104,13 @@ extension VibeKeyLocalization {
         case .buttonCheckUpdates: return "Rechercher des mises à jour…"
         case .longConnectMode: return "Connexion maintenue (sans mise en veille)"
 
+        case .mappingHeaderControl: return "Touche"
+        case .mappingHeaderShortPress: return "Appui court"
+        case .mappingHeaderLongPress: return "Appui long (0,2\u{202F}s)"
+        case .mappingLongPressNone: return "Aucune (désactivé)"
         case .mappingCustomItem: return "Action personnalisée"
         case .mappingCustomButton: return "Personnaliser…"
+        case .buttonClearLongPress: return "Effacer l’appui long"
         case .customMessage: return "Cliquez sur le champ d’enregistrement ci-dessus, puis appuyez sur une combinaison de touches. Vous pouvez aussi saisir ci-dessous WheelUp/WheelDown ou une commande shell commençant par $."
         case .customPlaceholder: return "⌘ Shift T, WheelUp ou $ open -a Terminal"
         case .customInvalidTitle: return "Format d’action invalide"

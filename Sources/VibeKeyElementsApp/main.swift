@@ -7,7 +7,9 @@ if let resultPath = VibeKeyPermissionProbe.resultPath(from: Array(CommandLine.ar
     exit(VibeKeyPermissionProbe.write(reports, to: resultPath) ? EXIT_SUCCESS : EXIT_FAILURE)
 }
 
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-_ = NSApplicationMain(CommandLine.argc, CommandLine.unsafeArgv)
+MainActor.assumeIsolated {
+    let app = NSApplication.shared
+    let delegate = AppDelegate()
+    app.delegate = delegate
+    _ = NSApplicationMain(CommandLine.argc, CommandLine.unsafeArgv)
+}

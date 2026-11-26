@@ -102,8 +102,13 @@ extension VibeKeyLocalization {
         case .buttonCheckUpdates: return "Check for Updates…"
         case .longConnectMode: return "Keep alive (pause idle power saving)"
 
+        case .mappingHeaderControl: return "Control"
+        case .mappingHeaderShortPress: return "Short press"
+        case .mappingHeaderLongPress: return "Long press (0.2s)"
+        case .mappingLongPressNone: return "None (disabled)"
         case .mappingCustomItem: return "Custom action"
         case .mappingCustomButton: return "Custom…"
+        case .buttonClearLongPress: return "Clear Long Press"
         case .customMessage: return "Click the recorder above, then press a key combination. Below you can also type WheelUp/WheelDown or a shell command starting with $."
         case .customPlaceholder: return "⌘ Shift T, WheelUp or $ open -a Terminal"
         case .customInvalidTitle: return "Invalid action format"

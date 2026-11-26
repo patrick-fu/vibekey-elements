@@ -40,6 +40,10 @@ public struct RecordedShortcut: Equatable, Sendable {
         case "pageup": return "⇞"
         case "pagedown": return "⇟"
         case "fn": return "Fn"
+        case "control": return "⌃"
+        case "option": return "⌥"
+        case "shift": return "⇧"
+        case "command": return "⌘"
         default: return name.uppercased()
         }
     }
@@ -47,9 +51,12 @@ public struct RecordedShortcut: Equatable, Sendable {
 
 public struct ShortcutRecordingBuffer: Sendable {
     private static let modifierOrder = ["control", "option", "shift", "command", "fn"]
+    public let allowStandaloneModifier: Bool
     private(set) var modifiers: Set<String> = []
 
-    public init() {}
+    public init(allowStandaloneModifier: Bool = false) {
+        self.allowStandaloneModifier = allowStandaloneModifier
+    }
 
     public var partialDisplay: String {
         Self.modifierOrder
@@ -75,9 +82,11 @@ public struct ShortcutRecordingBuffer: Sendable {
     @discardableResult
     public mutating func recordModifierChange(flags: CGEventFlags) -> RecordedShortcut? {
         let next = Self.modifiers(from: flags)
-        if modifiers == ["fn"], next.isEmpty {
-            modifiers = []
-            return RecordedShortcut(keys: ["fn"])
+        if modifiers.count == 1, next.isEmpty, let onlyModifier = modifiers.first {
+            if onlyModifier == "fn" || allowStandaloneModifier {
+                modifiers = []
+                return RecordedShortcut(keys: [onlyModifier])
+            }
         }
         modifiers = next
         return nil
